@@ -1,0 +1,6 @@
+{
+  "name": "ASEP MARKET",
+  "description": "ASEP MARKET — Atelier des Solutions Entrepreneuriales et Pédagogiques. Marketplace B2B et plateforme de sourcing direct reliant agences commerciales et fournisseurs en Chine avec acheteurs et commerçants en République Démocratique du Congo.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
