@@ -133,7 +133,7 @@ const mapConversation = (row: any): Conversation => {
 
 // Colonnes calculées par la base, à ne jamais envoyer
 const PRODUCT_READONLY = ['id', 'agencyName', 'agencyCity', 'createdAt', 'rating', 'reviewsCount'];
-const AGENCY_READONLY = ['id', 'verifiedStatus', 'createdBy', 'createdAt', 'rating', 'reviewCount', 'totalProducts'];
+const AGENCY_READONLY = ['id', 'verifiedStatus', 'createdBy', 'createdAt', 'rating', 'reviewCount', 'totalProducts', 'maxBranches', 'partnerCode'];
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   // ---------- Notifications ----------

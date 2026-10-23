@@ -24,7 +24,7 @@ export const ResetPasswordPage: React.FC = () => {
   };
 
   return (
-    <AuthCard title="Nouveau mot de passe">
+    <AuthCard title="Choisir votre mot de passe" subtitle="Après une invitation ou un mot de passe oublié, choisissez ici votre mot de passe pour accéder à ASEP MARKET.">
       {authReady && !isAuthenticated ? (
         <p className="text-sm text-slate-600 text-center">
           Ce lien a expiré ou a déjà été utilisé.{' '}

@@ -1,5 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import { NumberInput } from '../../components/common/NumberInput';
+import { VolumeFields } from './VolumeFields';
+import { BranchSelect } from './BranchSelect';
+import { useAcceptedPartners } from './PartnersPage';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Download, Plane, Plus, Search, Ship, Trash2, Truck, Upload, X } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
@@ -33,7 +36,8 @@ const ModeIcon: React.FC<{ mode: ShipmentMode }> = ({ mode }) =>
 // ---------- Formulaire d'enregistrement ----------
 
 const ShipmentForm: React.FC<{ open: boolean; onClose: () => void }> = ({ open, onClose }) => {
-  const { customers, settings, shipments, activeAgency, createShipment } = useWorkspace();
+  const { customers, settings, shipments, activeAgency, createShipment, defaultBranchId, branches } = useWorkspace();
+  const partners = useAcceptedPartners();
   const { addToast } = useApp();
   const navigate = useNavigate();
 
@@ -44,6 +48,10 @@ const ShipmentForm: React.FC<{ open: boolean; onClose: () => void }> = ({ open, 
     description: '',
     weightKg: 0,
     volumeCbm: 0,
+    lengthCm: null,
+    widthCm: null,
+    heightCm: null,
+    packages: 1,
     mode: 'sea',
     originCity: activeAgency?.city || 'Guangzhou',
     destinationCity: 'Kinshasa',
@@ -51,6 +59,9 @@ const ShipmentForm: React.FC<{ open: boolean; onClose: () => void }> = ({ open, 
     rate: settings.freightRates.seaPerCbm,
     estimatedCost: 0,
     photos: [],
+    originBranchId: defaultBranchId,
+    destinationBranchId: null,
+    partnerAgencyId: null,
   });
 
   const [form, setForm] = useState<ShipmentInput>(initial);
@@ -141,6 +152,38 @@ const ShipmentForm: React.FC<{ open: boolean; onClose: () => void }> = ({ open, 
           <input className={inputClass} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} required />
         </Field>
 
+        {branches.length > 1 && (
+          <div className="sm:col-span-2 grid sm:grid-cols-2 gap-4 p-3 rounded-xl bg-slate-50 border border-slate-200">
+            <BranchSelect
+              label="Succursale qui expédie"
+              value={form.originBranchId}
+              onChange={(id) => setForm({ ...form, originBranchId: id, destinationBranchId: form.destinationBranchId === id ? null : form.destinationBranchId })}
+              restrictToMine
+            />
+            <BranchSelect
+              label="Succursale qui reçoit et livre"
+              value={form.destinationBranchId}
+              onChange={(id) => setForm({ ...form, destinationBranchId: id })}
+              emptyLabel="— Pas de transfert (livré par la succursale qui expédie) —"
+              exclude={form.originBranchId}
+              hint="La succursale choisie voit ce colis arriver et met à jour son statut jusqu’à la livraison."
+            />
+          </div>
+        )}
+
+        {partners.length > 0 && (
+          <Field label="Confier à une agence partenaire" hint="Le partenaire verra ce colis (sans prix ni coordonnées du client) et mettra à jour son statut." className="sm:col-span-2">
+            <select className={inputClass} value={form.partnerAgencyId || ''} onChange={(e) => setForm({ ...form, partnerAgencyId: e.target.value || null })}>
+              <option value="">— Aucun partenaire —</option>
+              {partners.map((p) => (
+                <option key={p.agencyId} value={p.agencyId}>
+                  {p.agencyName} — {[p.agencyCity, p.agencyCountry].filter(Boolean).join(', ')}
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
+
         <Field label="Transport" required className="sm:col-span-2">
           <div className="grid grid-cols-2 gap-2">
             {(['sea', 'air'] as ShipmentMode[]).map((m) => (
@@ -176,9 +219,11 @@ const ShipmentForm: React.FC<{ open: boolean; onClose: () => void }> = ({ open, 
         <Field label="Poids (kg)" required>
           <NumberInput className={inputClass} value={form.weightKg} onChange={(v) => setForm({ ...form, weightKg: parseFloat(v) || 0 })} required placeholder="Ex. 120" />
         </Field>
-        <Field label="Volume (CBM)" required>
-          <NumberInput className={inputClass} value={form.volumeCbm} onChange={(v) => setForm({ ...form, volumeCbm: parseFloat(v) || 0 })} required placeholder="Ex. 1.5" />
-        </Field>
+        <VolumeFields
+          required
+          value={{ volumeCbm: form.volumeCbm, lengthCm: form.lengthCm, widthCm: form.widthCm, heightCm: form.heightCm, packages: form.packages }}
+          onChange={(v) => setForm({ ...form, ...v })}
+        />
         <Field label="Tarification">
           <select className={inputClass} value={form.rateType} onChange={(e) => setForm({ ...form, rateType: e.target.value as 'kg' | 'cbm' })}>
             <option value="kg">Au kilogramme</option>
@@ -312,8 +357,17 @@ const ShipmentDetail: React.FC<{ shipment: AgencyShipment }> = ({ shipment }) =>
             </div>
             <div>
               <dt className="text-slate-500">Volume</dt>
-              <dd className="font-semibold text-slate-900 tabular-nums">{formatNumber(shipment.volumeCbm, 2)} CBM</dd>
+              <dd className="font-semibold text-slate-900 tabular-nums">{formatNumber(shipment.volumeCbm, 3)} CBM</dd>
             </div>
+            {(shipment.lengthCm || shipment.widthCm || shipment.heightCm) && (
+              <div className="col-span-2">
+                <dt className="text-slate-500">Dimensions d’un carton</dt>
+                <dd className="font-semibold text-slate-900 tabular-nums">
+                  {formatNumber(shipment.lengthCm || 0, 1)} × {formatNumber(shipment.widthCm || 0, 1)} × {formatNumber(shipment.heightCm || 0, 1)} cm
+                  {(shipment.packages || 1) > 1 ? ` · ${shipment.packages} cartons` : ' · 1 carton'}
+                </dd>
+              </div>
+            )}
             <div className="col-span-2">
               <dt className="text-slate-500">Tarif appliqué</dt>
               <dd className="font-semibold text-slate-900">
@@ -504,8 +558,8 @@ export const FreightPage: React.FC = () => {
   const exportCsv = () => {
     downloadCSV(
       'expeditions.csv',
-      ['Référence', 'Client', 'Description', 'Mode', 'Départ', 'Destination', 'Poids (kg)', 'Volume (CBM)', 'Frais estimés (USD)', 'Payé (USD)', 'Statut', 'Créé le'],
-      filtered.map((s) => [s.trackingRef, s.customerName, s.description, SHIPMENT_MODE_LABELS[s.mode], s.originCity, s.destinationCity, s.weightKg, s.volumeCbm, s.estimatedCost, paidOf(s), SHIPMENT_STATUS_LABELS[s.status], s.createdAt.slice(0, 10)])
+      ['Référence', 'Client', 'Description', 'Mode', 'Départ', 'Destination', 'Poids (kg)', 'Volume (CBM)', 'Dimensions carton (cm)', 'Cartons', 'Frais estimés (USD)', 'Payé (USD)', 'Statut', 'Créé le'],
+      filtered.map((s) => [s.trackingRef, s.customerName, s.description, SHIPMENT_MODE_LABELS[s.mode], s.originCity, s.destinationCity, s.weightKg, s.volumeCbm, s.lengthCm && s.widthCm && s.heightCm ? `${s.lengthCm} x ${s.widthCm} x ${s.heightCm}` : '', s.packages || 1, s.estimatedCost, paidOf(s), SHIPMENT_STATUS_LABELS[s.status], s.createdAt.slice(0, 10)])
     );
     logActivity('freight', 'a exporté la liste des expéditions');
   };

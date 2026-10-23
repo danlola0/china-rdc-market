@@ -1,5 +1,5 @@
 import { fromRow, supabase } from '../../lib/supabase';
-import { AgencyActivity, AgencyMember, AgencySettings, SubscriptionPlan, SubscriptionStatus } from '../../agency/types';
+import { AgencyActivity, AgencyBranch, AgencyMember, AgencySettings, SubscriptionPlan, SubscriptionStatus } from '../../agency/types';
 
 /** Accès réservés à l'administrateur de la plateforme (contrôlés par la base : is_platform_admin) */
 
@@ -88,4 +88,29 @@ export const deleteAgency = async (agencyId: string, productImages: string[]) =>
   if (docPaths.length) await supabase.storage.from('agency-documents').remove(docPaths);
 
   return check(await supabase.rpc('admin_delete_agency', { p_agency: agencyId })) as string;
+};
+
+/**
+ * Invite une personne comme administrateur (fonction serveur « invite-admin »).
+ * Compte existant : il est nommé administrateur. Sinon : email d'invitation pour choisir le mot de passe.
+ */
+export const inviteAdmin = async (email: string, fullName: string) => {
+  const { data, error } = await supabase.functions.invoke('invite-admin', {
+    body: { email, fullName, redirectTo: `${window.location.origin}/auth/reset-password` },
+  });
+  if (error) {
+    // Message renvoyé par la fonction, s'il existe
+    const detail = await (error as any).context?.json?.().catch(() => null);
+    throw new Error(detail?.error || error.message);
+  }
+  return (data as { status: 'invited' | 'promoted' | 'already_admin' }).status;
+};
+
+/** Succursales de toutes les agences (l'administrateur voit tout) */
+export const listAllBranches = async () =>
+  (check(await supabase.from('agency_branches').select('*').order('created_at')) || []).map((r: any) => fromRow<AgencyBranch>(r));
+
+/** Nombre de succursales autorisées en plus du siège (fixé par l'administrateur) */
+export const setBranchQuota = async (agencyId: string, max: number) => {
+  check(await supabase.rpc('admin_set_branch_quota', { p_agency: agencyId, p_max: max }));
 };

@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { NumberInput } from '../../components/common/NumberInput';
+import { BranchSelect } from './BranchSelect';
 import { Download, Paperclip, Pencil, Plus, Receipt, Trash2, Upload } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { useWorkspace } from '../AgencyWorkspaceContext';
@@ -21,7 +22,7 @@ import {
 } from '../utils';
 
 const ExpenseForm: React.FC<{ open: boolean; initial: Partial<AgencyExpense>; onClose: () => void }> = ({ open, initial, onClose }) => {
-  const { saveExpense, members } = useWorkspace();
+  const { saveExpense, members, defaultBranchId } = useWorkspace();
   const { addToast } = useApp();
   const [form, setForm] = useState<Partial<AgencyExpense>>(initial);
   React.useEffect(() => {
@@ -93,6 +94,7 @@ const ExpenseForm: React.FC<{ open: boolean; initial: Partial<AgencyExpense>; on
         <Field label="Description" required className="sm:col-span-2">
           <input className={inputClass} value={form.description || ''} onChange={(e) => setForm({ ...form, description: e.target.value })} required />
         </Field>
+        <BranchSelect label="Succursale" value={form.branchId ?? defaultBranchId} onChange={(id) => setForm({ ...form, branchId: id })} restrictToMine />
         <Field label="Responsable">
           <select className={inputClass} value={form.responsibleName} onChange={(e) => setForm({ ...form, responsibleName: e.target.value })}>
             {members

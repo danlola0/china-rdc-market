@@ -20,7 +20,11 @@ const PermissionEditor: React.FC<{ member: AgencyMember | null; onClose: () => v
   React.useEffect(() => setMatrix(member ? JSON.parse(JSON.stringify(member.permissions)) : null), [member]);
   if (!member || !matrix) return null;
   const locked = member.role === 'owner';
-  const readOnly = locked || !can('staff', 'edit') || member.id === currentMember?.id;
+  const otherBranch = !!currentMember?.branchId && currentMember.role !== 'owner' && member.branchId !== currentMember.branchId;
+  const readOnly = locked || otherBranch || !can('staff', 'edit') || member.id === currentMember?.id;
+  // Un responsable de succursale ne peut pas donner plus de droits qu'il n'en a
+  const canGrant = (module: ModuleKey, action: PermissionAction) =>
+    !currentMember?.branchId || currentMember.role === 'owner' || can(module, action);
 
   const toggle = (module: ModuleKey, action: PermissionAction) => {
     setMatrix((m) => {
@@ -68,6 +72,8 @@ const PermissionEditor: React.FC<{ member: AgencyMember | null; onClose: () => v
             ? 'Le propriétaire dispose de tous les droits ; ils ne sont pas modifiables.'
             : member.id === currentMember?.id
             ? 'Vous ne pouvez pas modifier vos propres autorisations.'
+            : otherBranch
+            ? 'Consultation seule : cet employé dépend d’une autre succursale.'
             : 'Consultation seule : votre rôle ne permet pas de modifier les autorisations.'}
         </p>
       )}
@@ -93,7 +99,7 @@ const PermissionEditor: React.FC<{ member: AgencyMember | null; onClose: () => v
                       type="checkbox"
                       className="w-4 h-4 accent-[#123B70] cursor-pointer disabled:cursor-not-allowed"
                       checked={(matrix[m.key] || []).includes(a.key)}
-                      disabled={readOnly}
+                      disabled={readOnly || (!(matrix[m.key] || []).includes(a.key) && !canGrant(m.key, a.key))}
                       onChange={() => toggle(m.key, a.key)}
                       aria-label={`${m.label} : ${a.label}`}
                     />
@@ -109,11 +115,13 @@ const PermissionEditor: React.FC<{ member: AgencyMember | null; onClose: () => v
 };
 
 const MemberForm: React.FC<{ open: boolean; member: AgencyMember | null; onClose: () => void }> = ({ open, member, onClose }) => {
-  const { inviteMember, updateMember, currentMember } = useWorkspace();
-  const empty: MemberInput = { fullName: '', email: '', phone: '', role: 'sales' };
+  const { inviteMember, updateMember, currentMember, branches, branchName, seesAllBranches, defaultBranchId } = useWorkspace();
+  // Un responsable de succursale invite dans sa succursale ; le siège choisit
+  const empty: MemberInput = { fullName: '', email: '', phone: '', role: 'sales', branchId: seesAllBranches ? null : defaultBranchId };
   const [form, setForm] = useState<MemberInput>(empty);
   React.useEffect(() => {
-    if (open) setForm(member ? { fullName: member.fullName, email: member.email, phone: member.phone, role: member.role } : empty);
+    if (open)
+      setForm(member ? { fullName: member.fullName, email: member.email, phone: member.phone, role: member.role, branchId: member.branchId ?? null } : empty);
   }, [open, member]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const roles = currentMember?.role === 'owner' ? ROLES : ROLES.filter((r) => r !== 'owner');
@@ -161,6 +169,23 @@ const MemberForm: React.FC<{ open: boolean; member: AgencyMember | null; onClose
             </select>
           </Field>
         </div>
+        {branches.length > 1 && form.role !== 'owner' && (
+          <Field label="Succursale" hint="Rattaché à une succursale, l’employé ne voit que ses données et les colis qui lui sont envoyés.">
+            <select
+              className={inputClass}
+              value={form.branchId || ''}
+              onChange={(e) => setForm({ ...form, branchId: e.target.value || null })}
+              disabled={!seesAllBranches}
+            >
+              <option value="">Toutes les succursales (siège)</option>
+              {branches.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {branchName(b.id)}
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
         <p className="p-3 bg-slate-50 rounded-lg text-slate-600">{ROLE_DESCRIPTIONS[form.role]}</p>
         {!member && (
           <p className="text-[11px] text-slate-500">
@@ -176,7 +201,7 @@ const MemberForm: React.FC<{ open: boolean; member: AgencyMember | null; onClose
 };
 
 export const StaffPage: React.FC = () => {
-  const { members, activity, can, currentMember, updateMember, removeMember } = useWorkspace();
+  const { members, activity, can, currentMember, updateMember, removeMember, branches, branchName } = useWorkspace();
   const [tab, setTab] = useState<'members' | 'history'>('members');
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<AgencyMember | null>(null);
@@ -186,7 +211,10 @@ export const StaffPage: React.FC = () => {
 
   const sorted = [...members].sort((a, b) => ROLES.indexOf(a.role) - ROLES.indexOf(b.role));
   const history = activity.filter((a) => historyModule === 'all' || a.module === historyModule);
-  const canManage = (m: AgencyMember) => m.role !== 'owner' || currentMember?.role === 'owner';
+  const canManage = (m: AgencyMember) =>
+    (m.role !== 'owner' || currentMember?.role === 'owner') &&
+    // Un responsable de succursale ne gère que le personnel de sa succursale
+    (!currentMember?.branchId || currentMember.role === 'owner' || m.branchId === currentMember.branchId);
 
   return (
     <>
@@ -229,6 +257,7 @@ export const StaffPage: React.FC = () => {
                     <tr>
                       <th className="p-3 font-semibold">Employé</th>
                       <th className="p-3 font-semibold">Rôle</th>
+                      {branches.length > 1 && <th className="p-3 font-semibold hidden md:table-cell">Succursale</th>}
                       <th className="p-3 font-semibold hidden md:table-cell">Depuis</th>
                       <th className="p-3 font-semibold">Statut</th>
                       <th className="p-3 font-semibold text-right">Actions</th>
@@ -252,6 +281,9 @@ export const StaffPage: React.FC = () => {
                           </div>
                         </td>
                         <td className="p-3 text-slate-700">{ROLE_LABELS[m.role]}</td>
+                        {branches.length > 1 && (
+                          <td className="p-3 hidden md:table-cell text-slate-600">{m.role === 'owner' || !m.branchId ? 'Toutes' : branchName(m.branchId)}</td>
+                        )}
                         <td className="p-3 hidden md:table-cell text-slate-500">{formatDate(m.joinedAt || m.invitedAt)}</td>
                         <td className="p-3">
                           <Badge className={STATUS[m.status].cls}>{STATUS[m.status].label}</Badge>

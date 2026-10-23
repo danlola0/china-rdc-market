@@ -21,7 +21,8 @@ import {
 import { useApp } from '../../context/AppContext';
 import { errorMessage } from '../../lib/supabase';
 import { Agency } from '../../types';
-import { AgencyActivity, AgencyMember, AgencySettings, SubscriptionPlan, SubscriptionStatus } from '../../agency/types';
+import { AgencyActivity, AgencyBranch, AgencyMember, AgencySettings, SubscriptionPlan, SubscriptionStatus } from '../../agency/types';
+import { NumberInput } from '../../components/common/NumberInput';
 import { MODULES, ROLE_LABELS } from '../../agency/permissions';
 import { PLANS, SUBSCRIPTION_STATUS } from '../../agency/pages/SubscriptionPage';
 import { Badge, btn, Card, ConfirmDialog, EmptyState, Field, inputClass, Modal, StatCard } from '../../agency/ui';
@@ -29,6 +30,9 @@ import { formatDate, formatDateTime, formatMoney } from '../../agency/utils';
 import { AgencyReview } from './AgencyReview';
 import {
   deleteAgency,
+  inviteAdmin,
+  listAllBranches,
+  setBranchQuota,
   listActivity,
   listAllMembers,
   listAllSettings,
@@ -152,15 +156,64 @@ const SubscriptionEditor: React.FC<{
 // ---------------------------------------------------------------------
 // Fiche complète d'une agence
 // ---------------------------------------------------------------------
+/** Succursales d'une agence et quota fixé par l'administrateur */
+const BranchesAdmin: React.FC<{ agency: Agency; branches: AgencyBranch[]; onSaved: () => void }> = ({ agency, branches, onSaved }) => {
+  const { addToast } = useApp();
+  const [max, setMax] = useState(String(agency.maxBranches ?? 0));
+  const [saving, setSaving] = useState(false);
+  useEffect(() => setMax(String(agency.maxBranches ?? 0)), [agency.id, agency.maxBranches]);
+  const extra = branches.filter((b) => !b.isHeadquarters);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await setBranchQuota(agency.id, parseInt(max) || 0);
+      addToast(`${agency.name} peut maintenant avoir ${parseInt(max) || 0} succursale(s) en plus du siège.`, 'success');
+      onSaved();
+    } catch (e) {
+      addToast(errorMessage(e), 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div>
+      <h3 className="font-semibold text-slate-800 mb-2">Succursales</h3>
+      <ul className="divide-y divide-slate-100 border border-slate-200 rounded-lg mb-3">
+        {branches.map((b) => (
+          <li key={b.id} className="px-3 py-2 flex items-center justify-between gap-2">
+            <span>
+              <span className="font-semibold text-slate-900">{b.name}</span>{' '}
+              <span className="text-slate-500">· {[b.city, b.country].filter(Boolean).join(', ') || '—'}</span>
+            </span>
+            {b.isHeadquarters && <Badge className="bg-[#123B70] text-white">Siège</Badge>}
+          </li>
+        ))}
+      </ul>
+      <div className="flex flex-wrap items-end gap-2">
+        <Field label="Succursales autorisées en plus du siège" hint={`Utilisées : ${extra.length}`}>
+          <NumberInput decimals={false} className={`${inputClass} w-32`} value={max === '0' ? '' : max} onChange={(v) => setMax(v || '0')} placeholder="0" />
+        </Field>
+        <button className={btn.primary} onClick={save} disabled={saving || String(agency.maxBranches ?? 0) === String(parseInt(max) || 0)}>
+          {saving ? 'Enregistrement…' : 'Enregistrer'}
+        </button>
+      </div>
+    </div>
+  );
+};
+
 const AgencyDetail: React.FC<{
   agency: Agency | null;
   members: AgencyMember[];
+  branches: AgencyBranch[];
+  onBranchesSaved: () => void;
   settings?: AgencySettings;
   onClose: () => void;
   onManage: (a: Agency) => void;
   onSubscription: (a: Agency) => void;
   onDelete: (a: Agency) => void;
-}> = ({ agency, members, settings, onClose, onManage, onSubscription, onDelete }) => {
+}> = ({ agency, members, branches, onBranchesSaved, settings, onClose, onManage, onSubscription, onDelete }) => {
   const { products, orders, approveAgency, rejectAgency } = useApp();
   if (!agency) return null;
   const agencyMembers = members.filter((m) => m.agencyId === agency.id);
@@ -212,6 +265,8 @@ const AgencyDetail: React.FC<{
             <dd className="font-semibold">{agency.phoneWeChat || '—'}</dd>
           </div>
         </dl>
+
+        <BranchesAdmin agency={agency} branches={branches.filter((b) => b.agencyId === agency.id)} onSaved={onBranchesSaved} />
 
         <div>
           <h3 className="font-semibold text-slate-800 mb-2">Équipe</h3>
@@ -316,6 +371,75 @@ const DeleteAgencyDialog: React.FC<{ agency: Agency | null; onClose: () => void;
 };
 
 // ---------------------------------------------------------------------
+// Ajouter un administrateur (sans inscription acheteur ou agence)
+// ---------------------------------------------------------------------
+const InviteAdminDialog: React.FC<{ open: boolean; onClose: () => void; onDone: () => void }> = ({ open, onClose, onDone }) => {
+  const { addToast } = useApp();
+  const [form, setForm] = useState({ fullName: '', email: '' });
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (open) setForm({ fullName: '', email: '' });
+  }, [open]);
+  if (!open) return null;
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      const status = await inviteAdmin(form.email.trim(), form.fullName.trim());
+      addToast(
+        status === 'invited'
+          ? `Invitation envoyée à ${form.email.trim()}. La personne choisira son mot de passe depuis l’email reçu.`
+          : status === 'promoted'
+          ? `${form.email.trim()} avait déjà un compte : il est maintenant administrateur.`
+          : `${form.email.trim()} est déjà administrateur.`,
+        'success'
+      );
+      onDone();
+      onClose();
+    } catch (err) {
+      addToast(errorMessage(err), 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal
+      open
+      title="Ajouter un administrateur"
+      onClose={onClose}
+      footer={
+        <>
+          <button className={btn.secondary} onClick={onClose} disabled={busy}>
+            Annuler
+          </button>
+          <button className={btn.primary} type="submit" form="invite-admin-form" disabled={busy}>
+            {busy ? 'Envoi…' : 'Envoyer l’invitation'}
+          </button>
+        </>
+      }
+    >
+      <form id="invite-admin-form" onSubmit={submit} className="space-y-4">
+        <Field label="Nom complet" required>
+          <input className={inputClass} value={form.fullName} onChange={(e) => setForm({ ...form, fullName: e.target.value })} required autoFocus />
+        </Field>
+        <Field label="Adresse email" required>
+          <input type="email" className={inputClass} value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required />
+        </Field>
+        <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 text-slate-600 space-y-1">
+          <p>La personne reçoit un email avec un lien pour <strong>choisir son mot de passe</strong>. Elle n’a pas besoin de créer de compte acheteur ou agence.</p>
+          <p>Si cette adresse a déjà un compte sur le site, il est simplement nommé administrateur.</p>
+        </div>
+        <p className="p-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-900">
+          Un administrateur a accès à <strong>toute la plateforme</strong> : agences, documents, abonnements, utilisateurs et suppressions.
+        </p>
+      </form>
+    </Modal>
+  );
+};
+
+// ---------------------------------------------------------------------
 // Tableau de bord administrateur
 // ---------------------------------------------------------------------
 export const AdminDashboard: React.FC = () => {
@@ -326,6 +450,7 @@ export const AdminDashboard: React.FC = () => {
   const [members, setMembers] = useState<AgencyMember[]>([]);
   const [settings, setSettings] = useState<AgencySettings[]>([]);
   const [activity, setActivity] = useState<AgencyActivity[]>([]);
+  const [branches, setBranches] = useState<AgencyBranch[]>([]);
   const [loading, setLoading] = useState(false);
 
   const [agencySearch, setAgencySearch] = useState('');
@@ -337,11 +462,13 @@ export const AdminDashboard: React.FC = () => {
   const [adminChange, setAdminChange] = useState<PlatformUser | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [deletingAgency, setDeletingAgency] = useState<Agency | null>(null);
+  const [inviteOpen, setInviteOpen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [u, m, s, a] = await Promise.all([listUsers(), listAllMembers(), listAllSettings(), listActivity()]);
+      const [u, m, s, a, b] = await Promise.all([listUsers(), listAllMembers(), listAllSettings(), listActivity(), listAllBranches()]);
+      setBranches(b);
       setUsers(u);
       setMembers(m);
       setSettings(s);
@@ -523,6 +650,7 @@ export const AdminDashboard: React.FC = () => {
                       <th className="p-3 font-semibold">Agence</th>
                       <th className="p-3 font-semibold">Statut</th>
                       <th className="p-3 font-semibold hidden md:table-cell">Abonnement</th>
+                      <th className="p-3 font-semibold hidden lg:table-cell text-right">Succursales</th>
                       <th className="p-3 font-semibold hidden lg:table-cell text-right">Membres</th>
                       <th className="p-3 font-semibold hidden lg:table-cell text-right">Articles</th>
                       <th className="p-3 font-semibold hidden md:table-cell">Inscrite le</th>
@@ -554,6 +682,9 @@ export const AdminDashboard: React.FC = () => {
                             ) : (
                               '—'
                             )}
+                          </td>
+                          <td className="p-3 hidden lg:table-cell text-right tabular-nums">
+                            {branches.filter((b) => b.agencyId === a.id && !b.isHeadquarters).length} / {a.maxBranches ?? 0}
                           </td>
                           <td className="p-3 hidden lg:table-cell text-right tabular-nums">{members.filter((m) => m.agencyId === a.id && m.status === 'active').length}</td>
                           <td className="p-3 hidden lg:table-cell text-right tabular-nums">{products.filter((p) => p.agencyId === a.id).length}</td>
@@ -659,9 +790,14 @@ export const AdminDashboard: React.FC = () => {
             Les mots de passe sont chiffrés et ne peuvent être lus par personne. En cas d’oubli ou de problème, envoyez à l’utilisateur un lien pour en
             choisir un nouveau (icône clé).
           </div>
-          <div className="relative">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-            <input className={`${inputClass} pl-9`} placeholder="Nom, email, agence…" value={userSearch} onChange={(e) => setUserSearch(e.target.value)} />
+          <div className="flex flex-col sm:flex-row gap-2">
+            <div className="relative flex-1">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input className={`${inputClass} pl-9`} placeholder="Nom, email, agence…" value={userSearch} onChange={(e) => setUserSearch(e.target.value)} />
+            </div>
+            <button className={btn.primary} onClick={() => setInviteOpen(true)}>
+              <ShieldCheck className="w-4 h-4" /> Ajouter un administrateur
+            </button>
           </div>
           <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
             {filteredUsers.length === 0 ? (
@@ -689,7 +825,7 @@ export const AdminDashboard: React.FC = () => {
                           <div className="text-[11px] text-slate-400 break-all">{u.email}</div>
                           {!u.emailConfirmedAt && <div className="text-[11px] text-amber-700">Email non confirmé</div>}
                         </td>
-                        <td className="p-3">{u.accountType === 'agency' ? 'Agence' : 'Acheteur'}</td>
+                        <td className="p-3">{u.isAdmin ? 'Administrateur' : u.accountType === 'agency' ? 'Agence' : 'Acheteur'}</td>
                         <td className="p-3 hidden lg:table-cell text-slate-600">{u.agencies || '—'}</td>
                         <td className="p-3 hidden md:table-cell text-slate-500">{formatDate(u.createdAt)}</td>
                         <td className="p-3 hidden md:table-cell text-slate-500">{u.lastSignInAt ? formatDateTime(u.lastSignInAt) : 'Jamais'}</td>
@@ -810,14 +946,17 @@ export const AdminDashboard: React.FC = () => {
       )}
 
       <AgencyDetail
-        agency={detail}
+        agency={detail ? agencies.find((x) => x.id === detail.id) || detail : null}
         members={members}
+        branches={branches}
+        onBranchesSaved={refreshAll}
         settings={detail ? settingsOf(detail.id) : undefined}
         onClose={() => setDetail(null)}
         onManage={manage}
         onSubscription={(a) => setSubFor(a)}
         onDelete={(a) => setDeletingAgency(a)}
       />
+      <InviteAdminDialog open={inviteOpen} onClose={() => setInviteOpen(false)} onDone={load} />
       <DeleteAgencyDialog
         agency={deletingAgency}
         onClose={() => setDeletingAgency(null)}

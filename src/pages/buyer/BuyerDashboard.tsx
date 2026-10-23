@@ -3,6 +3,7 @@ import { useSearchParams, Link } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
 import { Order, RFQ } from '../../types';
 import { ProductCard } from '../../components/product/ProductCard';
+import { BuyerProfileForm } from './BuyerProfileForm';
 import {
   FileText,
   Package,
@@ -514,44 +515,7 @@ export const BuyerDashboard: React.FC = () => {
             <p className="text-xs text-slate-500">Utilisées pour la facturation proforma et le dédouanement à l'arrivée</p>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
-            <div>
-              <label className="block text-slate-500 mb-1">Nom complet</label>
-              <input
-                type="text"
-                value={currentUser.name}
-                readOnly
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-slate-50"
-              />
-            </div>
-            <div>
-              <label className="block text-slate-500 mb-1">Société / Nom commercial</label>
-              <input
-                type="text"
-                value={currentUser.companyName || ''}
-                readOnly
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-slate-50"
-              />
-            </div>
-            <div>
-              <label className="block text-slate-500 mb-1">Ville principale en RDC</label>
-              <input
-                type="text"
-                value={currentUser.city || ''}
-                readOnly
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-slate-50"
-              />
-            </div>
-            <div>
-              <label className="block text-slate-500 mb-1">Téléphone de contact</label>
-              <input
-                type="text"
-                value={currentUser.phone || ''}
-                readOnly
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-slate-50"
-              />
-            </div>
-          </div>
+          <BuyerProfileForm />
         </div>
       )}
 

@@ -37,6 +37,12 @@ export interface Agency {
   francophoneSupport: boolean;
   totalProducts: number;
   exportMarkets: string[];
+  /** Succursales autorisées en plus du siège (fixé par l'administrateur) */
+  maxBranches?: number;
+  /** Code à communiquer à une agence partenaire */
+  partnerCode?: string;
+  country?: string;
+  createdAt?: string;
 }
 
 export interface ProductVariant {

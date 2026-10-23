@@ -64,6 +64,9 @@ const NUMERIC_KEYS = new Set([
   'shipping_usd',
   'total_usd',
   'product_price',
+  'length_cm',
+  'width_cm',
+  'height_cm',
 ]);
 
 /** Message d'erreur lisible à partir d'une erreur Supabase */

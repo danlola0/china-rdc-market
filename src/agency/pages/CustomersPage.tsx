@@ -15,6 +15,7 @@ import {
   SHIPMENT_STATUS_STYLES,
 } from '../utils';
 import { ORDER_STATUS_LABELS } from './OrdersPage';
+import { BranchSelect } from './BranchSelect';
 
 const emptyCustomer: Partial<AgencyCustomer> = {
   name: '',
@@ -32,7 +33,7 @@ const CustomerForm: React.FC<{
   initial: Partial<AgencyCustomer>;
   onClose: () => void;
 }> = ({ open, initial, onClose }) => {
-  const { saveCustomer } = useWorkspace();
+  const { saveCustomer, defaultBranchId } = useWorkspace();
   const [form, setForm] = useState(initial);
   React.useEffect(() => {
     if (open) setForm(initial);
@@ -84,6 +85,7 @@ const CustomerForm: React.FC<{
             ))}
           </datalist>
         </Field>
+        <BranchSelect label="Succursale" value={form.branchId ?? defaultBranchId} onChange={(id) => setForm((f) => ({ ...f, branchId: id }))} restrictToMine />
         <Field label="Statut">
           <select className={inputClass} value={form.status} onChange={set('status')}>
             {Object.entries(CUSTOMER_STATUS_LABELS).map(([k, v]) => (

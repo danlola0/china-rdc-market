@@ -42,6 +42,21 @@ export interface AgencyMember {
   permissions: PermissionMatrix;
   invitedAt: string;
   joinedAt?: string;
+  /** Succursale de rattachement ; null = toutes les succursales */
+  branchId?: string | null;
+}
+
+/** agency_branches — succursale d'une agence (le siège est créé automatiquement) */
+export interface AgencyBranch {
+  id: string;
+  agencyId: string;
+  name: string;
+  city: string;
+  country: string;
+  phone: string;
+  address: string;
+  isHeadquarters: boolean;
+  createdAt: string;
 }
 
 export type CustomerStatus = 'prospect' | 'active' | 'vip' | 'inactive';
@@ -61,6 +76,7 @@ export interface AgencyCustomer {
   status: CustomerStatus;
   notes: string;
   createdAt: string;
+  branchId?: string | null;
 }
 
 export type Currency = 'USD' | 'CDF' | 'CNY';
@@ -101,6 +117,7 @@ export interface AgencyExpense {
   paymentMethod: PaymentMethod;
   receipt?: { name: string; dataUrl?: string };
   createdAt: string;
+  branchId?: string | null;
 }
 
 export type ShipmentMode = 'air' | 'sea';
@@ -124,6 +141,16 @@ export interface AgencyShipment {
   description: string;
   weightKg: number;
   volumeCbm: number;
+  /** Dimensions en centimètres (facultatives) et nombre de cartons */
+  lengthCm?: number | null;
+  widthCm?: number | null;
+  heightCm?: number | null;
+  packages?: number;
+  /** Succursale qui expédie / succursale qui reçoit et livre */
+  originBranchId?: string | null;
+  destinationBranchId?: string | null;
+  /** Agence partenaire (autre société) à qui le colis est confié */
+  partnerAgencyId?: string | null;
   mode: ShipmentMode;
   originCity: string;
   destinationCity: string;

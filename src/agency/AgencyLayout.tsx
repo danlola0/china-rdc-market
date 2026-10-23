@@ -7,6 +7,8 @@ import {
   CreditCard,
   LayoutDashboard,
   Menu,
+  Handshake,
+  Network,
   MessageSquare,
   Package,
   PackageSearch,
@@ -38,6 +40,8 @@ export const NAV_ITEMS: { module: ModuleKey; path: string; label: string; icon: 
   { module: 'staff', path: '/agency/staff', label: 'Personnel & Permissions', icon: UserCog },
   { module: 'reports', path: '/agency/reports', label: 'Rapports', icon: BarChart3 },
   { module: 'subscription', path: '/agency/subscription', label: 'Abonnement', icon: CreditCard },
+  { module: 'settings', path: '/agency/branches', label: 'Succursales', icon: Network },
+  { module: 'settings', path: '/agency/partners', label: 'Partenaires', icon: Handshake },
   { module: 'settings', path: '/agency/settings', label: 'Paramètres', icon: Settings },
 ];
 
@@ -125,6 +129,36 @@ const AgencySwitcher: React.FC<{ onCreate: () => void }> = ({ onCreate }) => {
   );
 };
 
+/** Choix de la succursale affichée (le siège voit tout ; un employé de succursale voit la sienne) */
+const BranchSwitcher: React.FC = () => {
+  const { branches, branchFilter, setBranchFilter, seesAllBranches, branchName } = useWorkspace();
+  if (branches.length <= 1) return null;
+  if (!seesAllBranches) {
+    return (
+      <div className="px-2 py-1.5 rounded-lg bg-white/10 text-[11px] text-blue-100">
+        Succursale : <span className="font-semibold text-white">{branchName(branchFilter)}</span>
+      </div>
+    );
+  }
+  return (
+    <label className="block">
+      <span className="sr-only">Succursale affichée</span>
+      <select
+        value={branchFilter}
+        onChange={(e) => setBranchFilter(e.target.value)}
+        className="w-full px-2 py-1.5 rounded-lg bg-white/10 border border-white/20 text-xs text-white focus:outline-none focus:ring-2 focus:ring-white/30 cursor-pointer"
+      >
+        <option value="all" className="text-slate-900">Toutes les succursales</option>
+        {branches.map((b) => (
+          <option key={b.id} value={b.id} className="text-slate-900">
+            {branchName(b.id)}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+};
+
 const Onboarding: React.FC = () => {
   const { memberships } = useWorkspace();
   const { profile } = useApp();
@@ -207,8 +241,9 @@ export const AgencyLayout: React.FC = () => {
 
   const sidebar = (
     <div className="flex flex-col h-full">
-      <div className="p-3 border-b border-white/10">
+      <div className="p-3 border-b border-white/10 space-y-2">
         <AgencySwitcher onCreate={() => setCreateOpen(true)} />
+        <BranchSwitcher />
       </div>
       <nav className="flex-1 overflow-y-auto p-3 space-y-0.5" aria-label="Navigation de l’agence">
         {items.map(({ path, label, icon: Icon }) => (

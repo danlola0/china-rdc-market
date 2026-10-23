@@ -3,9 +3,13 @@ import { Link } from 'react-router-dom';
 import { Copy, ExternalLink, MessageCircle, Package, Pencil, Search, Trash2 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { NumberInput } from '../../components/common/NumberInput';
+import { VolumeFields } from './VolumeFields';
+import { BranchSelect } from './BranchSelect';
+import { useAcceptedPartners } from './PartnersPage';
+import { PartnerParcels } from './PartnerParcels';
 import { useWorkspace } from '../AgencyWorkspaceContext';
 import { AgencyShipment, ShipmentMode, ShipmentStatus } from '../types';
-import { Badge, btn, ConfirmDialog, EmptyState, Field, inputClass, Modal, PageHeader } from '../ui';
+import { Badge, btn, ConfirmDialog, EmptyState, Field, inputClass, Modal, PageHeader, Tabs } from '../ui';
 import {
   CHINA_DEPARTURE_CITIES,
   computeFreightCost,
@@ -26,12 +30,17 @@ import {
 // Modifier un colis
 // ---------------------------------------------------------------------
 const EditParcel: React.FC<{ parcel: AgencyShipment | null; onClose: () => void }> = ({ parcel, onClose }) => {
-  const { customers, updateShipment, changeShipmentStatus } = useWorkspace();
+  const { customers, updateShipment, changeShipmentStatus, branchName } = useWorkspace();
+  const partners = useAcceptedPartners();
   const [form, setForm] = useState({
     customerId: '',
     description: '',
     weightKg: 0,
     volumeCbm: 0,
+    lengthCm: null as number | null,
+    widthCm: null as number | null,
+    heightCm: null as number | null,
+    packages: 1,
     mode: 'sea' as ShipmentMode,
     originCity: '',
     destinationCity: '',
@@ -39,6 +48,8 @@ const EditParcel: React.FC<{ parcel: AgencyShipment | null; onClose: () => void 
     rate: 0,
     status: 'registered' as ShipmentStatus,
     note: '',
+    destinationBranchId: null as string | null,
+    partnerAgencyId: null as string | null,
   });
   const [saving, setSaving] = useState(false);
 
@@ -49,6 +60,10 @@ const EditParcel: React.FC<{ parcel: AgencyShipment | null; onClose: () => void 
       description: parcel.description,
       weightKg: parcel.weightKg,
       volumeCbm: parcel.volumeCbm,
+      lengthCm: parcel.lengthCm ?? null,
+      widthCm: parcel.widthCm ?? null,
+      heightCm: parcel.heightCm ?? null,
+      packages: parcel.packages || 1,
       mode: parcel.mode,
       originCity: parcel.originCity,
       destinationCity: parcel.destinationCity,
@@ -56,6 +71,8 @@ const EditParcel: React.FC<{ parcel: AgencyShipment | null; onClose: () => void 
       rate: parcel.rate,
       status: parcel.status,
       note: '',
+      destinationBranchId: parcel.destinationBranchId ?? null,
+      partnerAgencyId: parcel.partnerAgencyId ?? null,
     });
   }, [parcel]);
 
@@ -73,12 +90,18 @@ const EditParcel: React.FC<{ parcel: AgencyShipment | null; onClose: () => void 
       description: form.description,
       weightKg: form.weightKg,
       volumeCbm: form.volumeCbm,
+      lengthCm: form.lengthCm,
+      widthCm: form.widthCm,
+      heightCm: form.heightCm,
+      packages: form.packages,
       mode: form.mode,
       originCity: form.originCity,
       destinationCity: form.destinationCity,
       rateType: form.rateType,
       rate: form.rate,
       estimatedCost: estimate,
+      destinationBranchId: form.destinationBranchId,
+      partnerAgencyId: form.partnerAgencyId,
     });
     // Un changement de statut est enregistré dans l'historique visible par le client
     if (ok && form.status !== parcel.status) await changeShipmentStatus(parcel.id, form.status, form.note);
@@ -117,6 +140,29 @@ const EditParcel: React.FC<{ parcel: AgencyShipment | null; onClose: () => void 
         <Field label="Description du contenu" required className="sm:col-span-2">
           <input className={inputClass} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} required />
         </Field>
+        <BranchSelect
+          label={`Succursale qui reçoit et livre${parcel.originBranchId ? ` (expédié par ${branchName(parcel.originBranchId)})` : ''}`}
+          value={form.destinationBranchId}
+          onChange={(id) => setForm({ ...form, destinationBranchId: id })}
+          emptyLabel="— Pas de transfert —"
+          exclude={parcel.originBranchId}
+          className="sm:col-span-2"
+        />
+        {(partners.length > 0 || form.partnerAgencyId) && (
+          <Field label="Confier à une agence partenaire" className="sm:col-span-2">
+            <select className={inputClass} value={form.partnerAgencyId || ''} onChange={(e) => setForm({ ...form, partnerAgencyId: e.target.value || null })}>
+              <option value="">— Aucun partenaire —</option>
+              {form.partnerAgencyId && !partners.some((p) => p.agencyId === form.partnerAgencyId) && (
+                <option value={form.partnerAgencyId}>Partenaire actuel</option>
+              )}
+              {partners.map((p) => (
+                <option key={p.agencyId} value={p.agencyId}>
+                  {p.agencyName} — {[p.agencyCity, p.agencyCountry].filter(Boolean).join(', ')}
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
         <Field label="Statut du colis">
           <select className={inputClass} value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as ShipmentStatus })}>
             {SHIPMENT_STATUS_ORDER.map((s) => (
@@ -167,9 +213,10 @@ const EditParcel: React.FC<{ parcel: AgencyShipment | null; onClose: () => void 
         <Field label="Poids (kg)">
           <NumberInput className={inputClass} value={form.weightKg} onChange={(v) => setForm({ ...form, weightKg: parseFloat(v) || 0 })} />
         </Field>
-        <Field label="Volume (CBM)">
-          <NumberInput className={inputClass} value={form.volumeCbm} onChange={(v) => setForm({ ...form, volumeCbm: parseFloat(v) || 0 })} />
-        </Field>
+        <VolumeFields
+          value={{ volumeCbm: form.volumeCbm, lengthCm: form.lengthCm, widthCm: form.widthCm, heightCm: form.heightCm, packages: form.packages }}
+          onChange={(v) => setForm({ ...form, ...v, lengthCm: v.lengthCm ?? null, widthCm: v.widthCm ?? null, heightCm: v.heightCm ?? null, packages: v.packages || 1 })}
+        />
         <Field label={`Tarif (USD / ${form.rateType === 'kg' ? 'kg' : 'CBM'})`}>
           <NumberInput className={inputClass} value={form.rate} onChange={(v) => setForm({ ...form, rate: parseFloat(v) || 0 })} />
         </Field>
@@ -286,8 +333,8 @@ const MessageParcel: React.FC<{ parcel: AgencyShipment | null; onClose: () => vo
 // ---------------------------------------------------------------------
 // Page « Gestion colis »
 // ---------------------------------------------------------------------
-export const ParcelsPage: React.FC = () => {
-  const { shipments, customers, can, deleteShipment } = useWorkspace();
+const MyParcels: React.FC<{ tabs: React.ReactNode }> = ({ tabs }) => {
+  const { shipments, customers, can, deleteShipment, branchName } = useWorkspace();
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState<'all' | ShipmentStatus>('all');
   const [editing, setEditing] = useState<AgencyShipment | null>(null);
@@ -319,6 +366,8 @@ export const ParcelsPage: React.FC = () => {
           )
         }
       />
+
+      {tabs}
 
       <div className="flex flex-col sm:flex-row gap-2">
         <div className="relative flex-1">
@@ -374,6 +423,11 @@ export const ParcelsPage: React.FC = () => {
                       <div className="text-[11px] text-slate-400">
                         {SHIPMENT_MODE_LABELS[s.mode]} · {formatNumber(s.weightKg, 1)} kg
                       </div>
+                      {s.destinationBranchId && (
+                        <div className="text-[11px] text-[#123B70] font-semibold">
+                          {branchName(s.originBranchId) || 'Siège'} → {branchName(s.destinationBranchId)}
+                        </div>
+                      )}
                     </td>
                     <td className="p-3">
                       <Badge className={SHIPMENT_STATUS_STYLES[s.status]}>{SHIPMENT_STATUS_LABELS[s.status]}</Badge>
@@ -417,6 +471,29 @@ export const ParcelsPage: React.FC = () => {
         onClose={() => setDeleting(null)}
         onConfirm={() => deleting && deleteShipment(deleting.id)}
       />
+    </>
+  );
+};
+
+/** Page « Gestion colis » : mes colis, et ceux que des agences partenaires m'ont confiés */
+export const ParcelsPage: React.FC = () => {
+  const [tab, setTab] = useState<'mine' | 'partners'>('mine');
+  const tabs = (
+    <Tabs
+      tabs={[
+        { key: 'mine', label: 'Mes colis' },
+        { key: 'partners', label: 'Colis reçus de partenaires' },
+      ]}
+      value={tab}
+      onChange={setTab}
+    />
+  );
+  if (tab === 'mine') return <MyParcels tabs={tabs} />;
+  return (
+    <>
+      <PageHeader title="Gestion colis" subtitle="Colis confiés à votre agence par vos partenaires." />
+      {tabs}
+      <PartnerParcels />
     </>
   );
 };

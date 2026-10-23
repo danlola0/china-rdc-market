@@ -5,6 +5,7 @@ import { agencyService, newId } from './services/agencyService';
 import { clonePermissions, hasPermission, ROLE_LABELS } from './permissions';
 import {
   AgencyActivity,
+  AgencyBranch,
   AgencyCustomer,
   AgencyExpense,
   AgencyMember,
@@ -79,7 +80,12 @@ export interface MemberInput {
   email: string;
   phone: string;
   role: AgencyRole;
+  /** Succursale de rattachement (null = toutes) */
+  branchId?: string | null;
 }
+
+/** 'all' = toutes les succursales visibles, sinon l'identifiant d'une succursale */
+export type BranchFilter = 'all' | string;
 
 export interface ShipmentInput
   extends Omit<AgencyShipment, 'id' | 'agencyId' | 'trackingRef' | 'createdAt' | 'updatedAt' | 'payments' | 'status'> {
@@ -97,7 +103,20 @@ interface WorkspaceContextType {
   ready: boolean;
   can: (module: ModuleKey, action?: PermissionAction) => boolean;
 
-  // Données de l'agence active uniquement
+  // Succursales
+  branches: AgencyBranch[];
+  headquarters: AgencyBranch | null;
+  /** true si l'utilisateur voit toutes les succursales (siège, propriétaire, administrateur) */
+  seesAllBranches: boolean;
+  branchFilter: BranchFilter;
+  setBranchFilter: (f: BranchFilter) => void;
+  /** Succursale utilisée par défaut pour une nouvelle saisie */
+  defaultBranchId: string | null;
+  branchName: (id?: string | null) => string;
+  saveBranch: (branch: Partial<AgencyBranch> & { id?: string }) => Promise<boolean>;
+  deleteBranch: (id: string) => Promise<void>;
+
+  // Données de l'agence active uniquement (filtrées selon la succursale choisie)
   members: AgencyMember[];
   customers: AgencyCustomer[];
   expenses: AgencyExpense[];
@@ -153,6 +172,8 @@ export const AgencyWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
   const [shipmentEvents, setShipmentEvents] = useState<AgencyShipmentEvent[]>([]);
   const [settingsRows, setSettingsRows] = useState<AgencySettings[]>([]);
   const [activity, setActivity] = useState<AgencyActivity[]>([]);
+  const [branches, setBranches] = useState<AgencyBranch[]>([]);
+  const [branchFilterState, setBranchFilterState] = useState<BranchFilter>('all');
 
   // ---------- Appartenances du profil connecté ----------
   // L'administrateur de la plateforme peut entrer dans toutes les agences, avec tous les droits
@@ -213,6 +234,7 @@ export const AgencyWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
       setShipmentEvents([]);
       setSettingsRows([]);
       setActivity([]);
+      setBranches([]);
       setLoadedAgencyId(null);
       return;
     }
@@ -221,7 +243,7 @@ export const AgencyWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
         console.error(err);
         return [] as T[];
       });
-    const [m, c, e, s, ev, st, a] = await Promise.all([
+    const [m, c, e, s, ev, st, a, br] = await Promise.all([
       safe(agencyService.list('agency_members', agencyId)),
       safe(agencyService.list('agency_customers', agencyId)),
       safe(agencyService.list('agency_expenses', agencyId)),
@@ -229,6 +251,7 @@ export const AgencyWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
       safe(agencyService.list('agency_shipment_events', agencyId)),
       safe(agencyService.list('agency_settings', agencyId)),
       safe(agencyService.list('agency_activity', agencyId)),
+      safe(agencyService.list('agency_branches', agencyId)),
     ]);
     setMembers(m);
     setCustomers(c.sort((x, y) => y.createdAt.localeCompare(x.createdAt)));
@@ -237,6 +260,8 @@ export const AgencyWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
     setShipmentEvents(ev.sort((x, y) => x.createdAt.localeCompare(y.createdAt)));
     setSettingsRows(st);
     setActivity(a.sort((x, y) => y.createdAt.localeCompare(x.createdAt)));
+    // Le siège d'abord, puis les succursales par ordre de création
+    setBranches(br.sort((x, y) => Number(y.isHeadquarters) - Number(x.isHeadquarters) || x.createdAt.localeCompare(y.createdAt)));
     setLoadedAgencyId(agencyId);
   }, [activeAgencyId]);
 
@@ -246,6 +271,7 @@ export const AgencyWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
 
   const switchAgency = (agencyId: string) => {
     if (!memberships.some((m) => m.agencyId === agencyId && m.status === 'active')) return;
+    setBranchFilterState('all');
     lsSet(lsActiveAgency(profile.id), agencyId);
     setActiveAgencyId(agencyId);
     const name = app.agencies.find((a) => a.id === agencyId)?.name;
@@ -264,7 +290,10 @@ export const AgencyWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
     (module: ModuleKey, action: PermissionAction = 'view') =>
       !!currentMember &&
       currentMember.status === 'active' &&
-      (currentMember.role === 'owner' || hasPermission(currentMember.permissions, module, action)),
+      (currentMember.role === 'owner' ||
+        (hasPermission(currentMember.permissions, module, action) &&
+          // Paramètres et abonnement de l'agence : réservés au siège
+          (!currentMember.branchId || (module !== 'settings' && module !== 'subscription')))),
     [currentMember]
   );
 
@@ -377,6 +406,7 @@ export const AgencyWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
         address: input.address || '',
         status: input.status || 'prospect',
         notes: input.notes || '',
+        branchId: input.branchId ?? defaultBranchId,
         createdAt: new Date().toISOString(),
       };
       await agencyService.insert('agency_customers', row);
@@ -422,6 +452,7 @@ export const AgencyWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
         responsibleName: input.responsibleName || currentMember?.fullName || '',
         paymentMethod: input.paymentMethod || 'cash',
         receipt: input.receipt,
+        branchId: input.branchId ?? defaultBranchId,
         createdAt: new Date().toISOString(),
       };
       await agencyService.insert('agency_expenses', row);
@@ -448,6 +479,8 @@ export const AgencyWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
     const now = new Date().toISOString();
     const row: AgencyShipment = {
       ...input,
+      originBranchId: input.originBranchId ?? defaultBranchId,
+      destinationBranchId: input.destinationBranchId ?? null,
       id: newId('shipment'),
       agencyId: activeAgencyId,
       payments: [],
@@ -535,6 +568,17 @@ export const AgencyWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
   };
 
   // ---------- Personnel ----------
+  // Droits d'un rôle, limités à ceux du responsable de succursale qui les attribue
+  const grantablePermissions = (role: AgencyRole): PermissionMatrix => {
+    const perms = clonePermissions(role);
+    if (!currentMember?.branchId || currentMember.role === 'owner') return perms;
+    const out = { ...perms };
+    for (const [module, actions] of Object.entries(perms)) {
+      out[module as ModuleKey] = (actions || []).filter((a) => (currentMember.permissions[module as ModuleKey] || []).includes(a));
+    }
+    return out;
+  };
+
   const inviteMember = async (input: MemberInput) => {
     if (!activeAgencyId || !guard('staff', 'create')) return false;
     if (input.role === 'owner' && currentMember?.role !== 'owner') {
@@ -556,7 +600,8 @@ export const AgencyWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
         phone: input.phone,
         role: input.role,
         status: 'invited',
-        permissions: clonePermissions(input.role),
+        permissions: grantablePermissions(input.role),
+        branchId: input.branchId ?? null,
         invitedAt: new Date().toISOString(),
       });
       await logActivity('staff', `a invité ${input.fullName} (${ROLE_LABELS[input.role]})`);
@@ -583,7 +628,7 @@ export const AgencyWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
       return false;
     }
     const finalPatch = { ...patch };
-    if (patch.role && patch.role !== target.role) finalPatch.permissions = clonePermissions(patch.role);
+    if (patch.role && patch.role !== target.role) finalPatch.permissions = grantablePermissions(patch.role);
     if (patch.status === 'active' && !target.joinedAt) finalPatch.joinedAt = new Date().toISOString();
     return run(async () => {
       await agencyService.update('agency_members', activeAgencyId, id, finalPatch);
@@ -639,6 +684,54 @@ export const AgencyWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
   };
 
   // ---------- Paramètres ----------
+  // ---------- Succursales ----------
+  const saveBranch: WorkspaceContextType['saveBranch'] = async (input) => {
+    if (!activeAgencyId || !guard('settings', 'edit')) return false;
+    if (input.id) {
+      return run(async () => {
+        await agencyService.update('agency_branches', activeAgencyId, input.id!, {
+          name: input.name,
+          city: input.city,
+          country: input.country,
+          phone: input.phone,
+          address: input.address,
+        });
+        await logActivity('settings', `a modifié la succursale « ${input.name} »`);
+        await reload();
+        addToast('Succursale mise à jour.', 'success');
+      });
+    }
+    return run(async () => {
+      await agencyService.insert('agency_branches', {
+        id: newId('branch'),
+        agencyId: activeAgencyId,
+        name: input.name || '',
+        city: input.city || '',
+        country: input.country || '',
+        phone: input.phone || '',
+        address: input.address || '',
+        isHeadquarters: false,
+        createdAt: new Date().toISOString(),
+      });
+      await logActivity('settings', `a ajouté la succursale « ${input.name} »`);
+      await reload();
+      addToast(`Succursale « ${input.name} » ajoutée.`, 'success');
+    });
+  };
+
+  const deleteBranch = async (id: string) => {
+    if (!activeAgencyId || !guard('settings', 'edit')) return;
+    const b = branches.find((x) => x.id === id);
+    if (!b || b.isHeadquarters) return;
+    await run(async () => {
+      await agencyService.remove('agency_branches', activeAgencyId, id);
+      await logActivity('settings', `a supprimé la succursale « ${b.name} »`);
+      if (branchFilterState === id) setBranchFilterState('all');
+      await reload();
+      addToast('Succursale supprimée. Ses données restent dans l’agence.', 'info');
+    });
+  };
+
   const saveSettings = async (patch: Partial<AgencySettings>) => {
     if (!activeAgencyId || !guard('settings', 'edit')) return;
     await run(async () => {
@@ -653,7 +746,39 @@ export const AgencyWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
     await app.updateAgency(activeAgencyId, patch);
   };
 
+  // ---------- Filtrage par succursale ----------
+  const headquarters = branches.find((b) => b.isHeadquarters) || null;
+  const myBranchId = currentMember && currentMember.role !== 'owner' ? currentMember.branchId || null : null;
+  const seesAllBranches = !myBranchId;
+  // Un employé rattaché à une succursale ne voit que celle-ci
+  const branchFilter: BranchFilter = myBranchId || branchFilterState;
+  const setBranchFilter = (f: BranchFilter) => {
+    if (!seesAllBranches) return;
+    setBranchFilterState(f);
+  };
+  const defaultBranchId = branchFilter !== 'all' ? branchFilter : headquarters?.id || null;
+  const branchName = (id?: string | null) => {
+    const b = branches.find((x) => x.id === id);
+    return b ? (b.isHeadquarters ? `${b.name}${b.city ? ` — ${b.city}` : ''}` : `${b.name}${b.city && b.city !== b.name ? ` — ${b.city}` : ''}`) : '';
+  };
+  const inBranch = (id?: string | null) => branchFilter === 'all' || id === branchFilter;
+  const visibleCustomers = useMemo(() => customers.filter((c) => inBranch(c.branchId)), [customers, branchFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+  const visibleExpenses = useMemo(() => expenses.filter((e) => inBranch(e.branchId)), [expenses, branchFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+  const visibleShipments = useMemo(
+    () => shipments.filter((sh) => branchFilter === 'all' || sh.originBranchId === branchFilter || sh.destinationBranchId === branchFilter),
+    [shipments, branchFilter]
+  );
+
   const value: WorkspaceContextType = {
+    branches,
+    headquarters,
+    seesAllBranches,
+    branchFilter,
+    setBranchFilter,
+    defaultBranchId,
+    branchName,
+    saveBranch,
+    deleteBranch,
     profile,
     memberships,
     myAgencies,
@@ -664,9 +789,9 @@ export const AgencyWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
     ready: membershipsReady && (activeAgencyId === null || loadedAgencyId === activeAgencyId),
     can,
     members,
-    customers,
-    expenses,
-    shipments,
+    customers: visibleCustomers,
+    expenses: visibleExpenses,
+    shipments: visibleShipments,
     shipmentEvents,
     settings,
     activity,

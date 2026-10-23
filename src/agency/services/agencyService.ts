@@ -1,6 +1,7 @@
 import { fromRow, supabase, toRow } from '../../lib/supabase';
 import {
   AgencyActivity,
+  AgencyBranch,
   AgencyCustomer,
   AgencyExpense,
   AgencyMember,
@@ -25,6 +26,7 @@ export interface TableRowMap {
   agency_shipment_events: AgencyShipmentEvent;
   agency_settings: AgencySettings;
   agency_activity: AgencyActivity;
+  agency_branches: AgencyBranch;
 }
 
 export type TableName = keyof TableRowMap;
