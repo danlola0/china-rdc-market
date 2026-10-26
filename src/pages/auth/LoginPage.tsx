@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
 import { AuthCard, AuthField, authInput, SubmitButton } from './AuthCard';
+import { PasswordInput } from '../../components/common/PasswordInput';
 
 export const LoginPage: React.FC = () => {
   const navigate = useNavigate();
@@ -30,7 +31,7 @@ export const LoginPage: React.FC = () => {
           <input type="email" autoComplete="email" className={authInput} value={email} onChange={(e) => setEmail(e.target.value)} required />
         </AuthField>
         <AuthField label="Mot de passe">
-          <input type="password" autoComplete="current-password" className={authInput} value={password} onChange={(e) => setPassword(e.target.value)} required />
+          <PasswordInput autoComplete="current-password" className={authInput} value={password} onChange={(e) => setPassword(e.target.value)} required />
         </AuthField>
         <div className="text-right">
           <Link to="/auth/forgot-password" className="text-xs text-[#123B70] hover:underline">

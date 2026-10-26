@@ -80,13 +80,26 @@ interface AppContextType {
 
   // Actions
   toggleFavorite: (productId: string) => Promise<void>;
-  addProduct: (product: Partial<Product>) => Promise<Product | null>;
+  /** silent : pas de message par article (publication de plusieurs articles) */
+  addProduct: (product: Partial<Product>, opts?: { silent?: boolean }) => Promise<Product | null>;
   updateProduct: (id: string, updates: Partial<Product>) => Promise<void>;
   deleteProduct: (id: string) => Promise<void>;
   submitRFQ: (data: Omit<RFQ, 'id' | 'rfqNumber' | 'status' | 'createdAt'>) => Promise<RFQ | null>;
   respondRFQ: (rfqId: string, quoteUSD: number, shippingUSD: number, agencyNotes: string) => Promise<void>;
   acceptRFQ: (rfqId: string) => Promise<void>;
+  /** Commande directe d'un article ; renvoie le numéro de commande */
+  placeOrder: (input: PlaceOrderInput) => Promise<string | null>;
+  /** Modifie la quantité d'une commande encore en attente */
+  updateOrderQuantity: (orderId: string, quantity: number) => Promise<boolean>;
+  /** Agence : supprime une commande (l'acheteur est prévenu) */
+  deleteOrder: (orderId: string) => Promise<boolean>;
+  /** Agence : ouvre (ou crée) la conversation avec un acheteur ; renvoie son id */
+  openConversationWithBuyer: (agencyId: string, buyerId: string) => Promise<string | null>;
   sendMessage: (conversationId: string, text: string, attachment?: any, sender?: 'buyer' | 'agency') => Promise<void>;
+  /** Supprime un message pour moi, ou pour tout le monde (mes propres messages) */
+  deleteMessage: (messageId: string, side: 'buyer' | 'agency', forEveryone: boolean) => Promise<boolean>;
+  /** Vide la discussion de mon côté */
+  clearConversation: (conversationId: string, side: 'buyer' | 'agency') => Promise<boolean>;
   startOrOpenConversation: (agencyId: string, productId?: string, initialText?: string) => Promise<string | null>;
   updateOrderStatus: (orderId: string, status: OrderStatus) => Promise<void>;
   updateAgency: (agencyId: string, updates: Partial<Agency>) => Promise<boolean>;
@@ -114,8 +127,11 @@ const relativeLabel = (iso: string) => {
 const mapConversation = (row: any): Conversation => {
   const { messages = [], ...rest } = row;
   const base = fromRow<any>(rest);
+  // Aperçu : dernier message visible de mon côté
+  const last = [...messages].sort((a: any, b: any) => b.created_at.localeCompare(a.created_at))[0];
   return {
     ...base,
+    lastMessage: last ? (last.deleted_at ? 'Message supprimé' : last.text || last.attachment?.title || 'Pièce jointe') : base.lastMessage,
     lastMessageTime: relativeLabel(row.last_message_at),
     messages: [...messages]
       .sort((a: any, b: any) => a.created_at.localeCompare(b.created_at))
@@ -123,6 +139,8 @@ const mapConversation = (row: any): Conversation => {
         (m: any): ChatMessage => ({
           id: m.id,
           sender: m.sender,
+          senderId: m.sender_id,
+          deleted: !!m.deleted_at,
           text: m.text,
           timestamp: timeLabel(m.created_at),
           attachment: m.attachment || undefined,
@@ -134,6 +152,18 @@ const mapConversation = (row: any): Conversation => {
 // Colonnes calculées par la base, à ne jamais envoyer
 const PRODUCT_READONLY = ['id', 'agencyName', 'agencyCity', 'createdAt', 'rating', 'reviewsCount'];
 const AGENCY_READONLY = ['id', 'verifiedStatus', 'createdBy', 'createdAt', 'rating', 'reviewCount', 'totalProducts', 'maxBranches', 'partnerCode'];
+
+export interface PlaceOrderInput {
+  productId: string;
+  agencyId: string;
+  productName: string;
+  quantity: number;
+  city: string;
+  address: string;
+  phone: string;
+  shippingMode: string;
+  note: string;
+}
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   // ---------- Notifications ----------
@@ -277,6 +307,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const signOut = async () => {
     await supabase.auth.signOut();
     setProfile(null);
+    // Le message d'abonnement sera de nouveau affiché à la prochaine connexion
+    try {
+      Object.keys(sessionStorage)
+        .filter((k) => k.startsWith('asep_sub_notice_'))
+        .forEach((k) => sessionStorage.removeItem(k));
+    } catch {
+      // stockage indisponible
+    }
     addToast('Vous êtes déconnecté.', 'info');
   };
 
@@ -431,7 +469,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!userId || !isSupabaseConfigured) return;
     const channel = supabase
       .channel('messaging')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, () => loadConversationsRef.current())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, () => loadConversationsRef.current())
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'conversations' }, () => loadConversationsRef.current())
       .subscribe();
     return () => {
@@ -456,7 +494,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // ---------- Articles ----------
-  const addProduct = async (prodData: Partial<Product>) => {
+  const addProduct = async (prodData: Partial<Product>, opts: { silent?: boolean } = {}) => {
     if (!requireAuth()) return null;
     const row = toRow(
       {
@@ -485,7 +523,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
     const product = fromRow<Product>(data);
     setProducts((prev) => [product, ...prev]);
-    addToast(`Article « ${product.name} » publié.`, 'success');
+    if (!opts.silent) addToast(`Article « ${product.name} » publié.`, 'success');
     return product;
   };
 
@@ -517,6 +555,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
     if (error) return fail(error);
     await loadConversations();
+  };
+
+  const deleteMessage = async (messageId: string, side: 'buyer' | 'agency', forEveryone: boolean) => {
+    const { error } = await supabase.rpc('delete_message', { p_message: messageId, p_side: side, p_for_everyone: forEveryone });
+    if (error) {
+      fail(error);
+      return false;
+    }
+    await loadConversations();
+    addToast(forEveryone ? 'Message supprimé pour tout le monde.' : 'Message supprimé de votre côté.', 'success');
+    return true;
+  };
+
+  const clearConversation = async (conversationId: string, side: 'buyer' | 'agency') => {
+    const { error } = await supabase.rpc('clear_conversation', { p_conversation: conversationId, p_side: side });
+    if (error) {
+      fail(error);
+      return false;
+    }
+    await loadConversations();
+    addToast('Discussion effacée de votre côté.', 'success');
+    return true;
   };
 
   const startOrOpenConversation = async (agencyId: string, productId?: string, initialText?: string) => {
@@ -606,6 +666,64 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     addToast('Devis accepté : la commande a été créée.', 'success');
   };
 
+  const placeOrder = async (input: PlaceOrderInput) => {
+    if (!requireAuth()) return null;
+    const { data, error } = await supabase.rpc('place_order', {
+      p_product: input.productId,
+      p_quantity: input.quantity,
+      p_city: input.city,
+      p_address: input.address,
+      p_phone: input.phone,
+      p_shipping_mode: input.shippingMode,
+      p_note: input.note,
+    });
+    if (error) {
+      fail(error);
+      return null;
+    }
+    const orderNumber = (data as { orderNumber: string }).orderNumber;
+    await loadPrivate();
+    await startOrOpenConversation(
+      input.agencyId,
+      input.productId,
+      `Bonjour, je viens de passer la commande ${orderNumber} : ${input.quantity} × « ${input.productName} », livraison à ${input.city}. Merci de me confirmer le prix final, le transport et le délai.`
+    );
+    addToast(`Commande ${orderNumber} envoyée à l’agence.`, 'success');
+    return orderNumber;
+  };
+
+  const deleteOrder = async (orderId: string) => {
+    const { error } = await supabase.rpc('delete_order', { p_order: orderId });
+    if (error) {
+      fail(error);
+      return false;
+    }
+    await loadPrivate();
+    addToast('Commande supprimée. Le client a été prévenu.', 'info');
+    return true;
+  };
+
+  const openConversationWithBuyer = async (agencyId: string, buyerId: string) => {
+    const { data, error } = await supabase.rpc('agency_open_conversation', { p_agency: agencyId, p_buyer: buyerId });
+    if (error) {
+      fail(error);
+      return null;
+    }
+    await loadConversations();
+    return data as string;
+  };
+
+  const updateOrderQuantity = async (orderId: string, quantity: number) => {
+    const { error } = await supabase.rpc('update_order_quantity', { p_order: orderId, p_quantity: quantity });
+    if (error) {
+      fail(error);
+      return false;
+    }
+    await loadPrivate();
+    addToast('Quantité modifiée : l’agence a été prévenue.', 'success');
+    return true;
+  };
+
   const updateOrderStatus = async (orderId: string, status: OrderStatus) => {
     const order = orders.find((o) => o.id === orderId);
     if (!order) return;
@@ -685,7 +803,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     submitRFQ,
     respondRFQ,
     acceptRFQ,
+    placeOrder,
+    updateOrderQuantity,
+    deleteOrder,
+    openConversationWithBuyer,
     sendMessage,
+    deleteMessage,
+    clearConversation,
     startOrOpenConversation,
     updateOrderStatus,
     updateAgency,

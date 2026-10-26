@@ -7,7 +7,7 @@ export const FloatingTranslateWidget: React.FC = () => {
   const [minimized, setMinimized] = useState(false);
 
   return (
-    <div className="fixed bottom-16 sm:bottom-4 right-3 sm:right-4 z-40 flex flex-col items-end print:hidden">
+    <div className="hidden sm:flex fixed bottom-16 sm:bottom-4 right-3 sm:right-4 z-40 flex-col items-end print:hidden">
       {minimized ? (
         <button
           onClick={() => setMinimized(false)}

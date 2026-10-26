@@ -114,3 +114,11 @@ export const listAllBranches = async () =>
 export const setBranchQuota = async (agencyId: string, max: number) => {
   check(await supabase.rpc('admin_set_branch_quota', { p_agency: agencyId, p_max: max }));
 };
+
+/** Supprime des lignes du journal d'activité ; renvoie le nombre supprimé */
+export const deleteActivities = async (ids: string[]): Promise<number> =>
+  check(await supabase.rpc('admin_delete_activity', { p_ids: ids })) as number;
+
+/** Efface le journal d'une agence (ou de toutes si agencyId est vide) */
+export const clearActivity = async (agencyId: string | null): Promise<number> =>
+  check(await supabase.rpc('admin_clear_activity', { p_agency: agencyId })) as number;

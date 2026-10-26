@@ -4,8 +4,9 @@ import { useApp } from '../../context/AppContext';
 import { errorMessage } from '../../lib/supabase';
 import { useWorkspace } from '../AgencyWorkspaceContext';
 import { endPartnership, listPartnerships, Partnership, requestPartnership, respondPartnership } from '../services/partnerService';
-import { Badge, btn, Card, ConfirmDialog, EmptyState, Field, inputClass, PageHeader } from '../ui';
+import { Badge, btn, Card, ConfirmDialog, EmptyState, Field, inputClass, PageHeader, Pagination, usePagination } from '../ui';
 import { formatDate } from '../utils';
+import { AgencyLogo } from '../../components/common/AgencyImages';
 
 /** Liste des partenaires acceptés de l'agence active (utilisée dans les formulaires de colis) */
 export const useAcceptedPartners = () => {
@@ -82,11 +83,7 @@ export const PartnersPage: React.FC = () => {
 
   const AgencyLine: React.FC<{ p: Partnership }> = ({ p }) => (
     <div className="flex items-center gap-3 min-w-0">
-      {p.agencyLogo ? (
-        <img src={p.agencyLogo} alt="" className="w-9 h-9 rounded-lg object-cover border border-slate-200 shrink-0" />
-      ) : (
-        <div className="w-9 h-9 rounded-lg bg-slate-100 shrink-0" />
-      )}
+      <AgencyLogo src={p.agencyLogo} name={p.agencyName} className="w-9 h-9 rounded-lg object-cover border border-slate-200 shrink-0" />
       <div className="min-w-0">
         <div className="font-semibold text-slate-900 truncate">{p.agencyName}</div>
         <div className="text-[11px] text-slate-500 flex flex-wrap gap-x-3">
@@ -102,6 +99,8 @@ export const PartnersPage: React.FC = () => {
       </div>
     </div>
   );
+
+  const pager = usePagination(accepted);
 
   return (
     <>
@@ -185,19 +184,22 @@ export const PartnersPage: React.FC = () => {
         {accepted.length === 0 ? (
           <EmptyState icon={Handshake} title="Aucun partenaire" text="Envoyez une demande avec le code partenaire d’une autre agence, ou partagez le vôtre." />
         ) : (
-          <ul className="divide-y divide-slate-100">
-            {accepted.map((p) => (
-              <li key={p.id} className="py-3 flex flex-col sm:flex-row sm:items-center gap-3">
-                <AgencyLine p={p} />
-                <Badge className="bg-emerald-100 text-emerald-800 sm:ml-auto self-start sm:self-auto">Partenaire depuis le {formatDate(p.respondedAt || p.createdAt)}</Badge>
-                {canEdit && (
-                  <button className={btn.icon} title="Mettre fin au partenariat" onClick={() => setEnding(p)}>
-                    <Unlink className="w-4 h-4 text-rose-600" />
-                  </button>
-                )}
-              </li>
-            ))}
-          </ul>
+          <>
+            <ul className="divide-y divide-slate-100">
+              {pager.items.map((p) => (
+                <li key={p.id} className="py-3 flex flex-col sm:flex-row sm:items-center gap-3">
+                  <AgencyLine p={p} />
+                  <Badge className="bg-emerald-100 text-emerald-800 sm:ml-auto self-start sm:self-auto">Partenaire depuis le {formatDate(p.respondedAt || p.createdAt)}</Badge>
+                  {canEdit && (
+                    <button className={btn.icon} title="Mettre fin au partenariat" onClick={() => setEnding(p)}>
+                      <Unlink className="w-4 h-4 text-rose-600" />
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+            <Pagination pager={pager} />
+          </>
         )}
       </Card>
 

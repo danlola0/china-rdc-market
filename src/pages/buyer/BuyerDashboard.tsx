@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { useSearchParams, Link } from 'react-router-dom';
+import { useSearchParams, Link, useLocation } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
 import { Order, RFQ } from '../../types';
 import { ProductCard } from '../../components/product/ProductCard';
 import { BuyerProfileForm } from './BuyerProfileForm';
+import { EditOrderQuantity } from './EditOrderQuantity';
 import {
   FileText,
   Package,
@@ -25,7 +26,9 @@ import {
 
 export const BuyerDashboard: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
-  const activeTab = searchParams.get('tab') || 'overview';
+  const { pathname } = useLocation();
+  // /buyer/orders, /buyer/rfqs, /buyer/favorites ouvrent directement l'onglet correspondant
+  const activeTab = searchParams.get('tab') || pathname.split('/')[2] || 'overview';
 
   const {
     currentUser,
@@ -40,6 +43,7 @@ export const BuyerDashboard: React.FC = () => {
   } = useApp();
 
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [editingQty, setEditingQty] = useState<Order | null>(null);
 
   const myRfqs = rfqs.filter((r) => r.buyerId === currentUser.id);
   const myOrders = orders.filter((o) => o.buyerId === currentUser.id);
@@ -468,13 +472,23 @@ export const BuyerDashboard: React.FC = () => {
                       </div>
                     </div>
 
-                    <button
-                      onClick={() => setSelectedOrder(order)}
-                      className="px-4 py-2 bg-[#123B70] text-white hover:bg-[#0c274c] text-xs font-semibold rounded-lg self-start md:self-center transition-colors flex items-center gap-1.5"
-                    >
-                      <Ship className="w-3.5 h-3.5" />
-                      <span>Voir la timeline maritime</span>
-                    </button>
+                    <div className="flex flex-wrap gap-2 self-start md:self-center">
+                      {order.status === 'en_attente' && (
+                        <button
+                          onClick={() => setEditingQty(order)}
+                          className="px-4 py-2 border border-[#123B70] text-[#123B70] hover:bg-[#123B70]/5 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
+                        >
+                          Modifier la quantité
+                        </button>
+                      )}
+                      <button
+                        onClick={() => setSelectedOrder(order)}
+                        className="px-4 py-2 bg-[#123B70] text-white hover:bg-[#0c274c] text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5"
+                      >
+                        <Ship className="w-3.5 h-3.5" />
+                        <span>Voir la timeline maritime</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
               );
@@ -520,6 +534,8 @@ export const BuyerDashboard: React.FC = () => {
       )}
 
       {/* MODAL: ORDER DETAILS & SHIPPING TIMELINE */}
+      <EditOrderQuantity order={editingQty} onClose={() => setEditingQty(null)} />
+
       {selectedOrder && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs overflow-y-auto">
           <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full border border-slate-200 overflow-hidden my-8 animate-in zoom-in-95">

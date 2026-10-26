@@ -13,7 +13,7 @@ import {
 
 export const MobileBottomNav: React.FC = () => {
   const location = useLocation();
-  const { currentRole, conversations, t } = useApp();
+  const { currentRole, conversations, t, language } = useApp();
 
   const unreadMessagesCount = conversations.reduce((acc, c) => acc + c.unreadCount, 0);
 
@@ -55,7 +55,7 @@ export const MobileBottomNav: React.FC = () => {
         }`}
       >
         <Package className={`w-5 h-5 mb-0.5 ${isCatalogActive ? 'text-[#123B70] stroke-[2.5]' : 'stroke-2'}`} />
-        <span className="truncate max-w-[56px]">{t.allProducts}</span>
+        <span className="truncate max-w-[56px]">{language === 'zh' ? '商品' : language === 'en' ? 'Catalog' : 'Catalogue'}</span>
       </Link>
 
       {/* 3. Suppliers / Agencies */}

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { DRC_CITIES } from '../../data/referenceData';
+import { PasswordInput } from '../../components/common/PasswordInput';
 
 const inputCls = 'w-full px-3 py-2 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#123B70]/20 focus:border-[#123B70]';
 
@@ -140,11 +141,11 @@ export const BuyerProfileForm: React.FC = () => {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <label className="block">
             <span className="block text-slate-500 mb-1">Nouveau mot de passe</span>
-            <input type="password" autoComplete="new-password" minLength={8} className={inputCls} value={pwd.password} onChange={(e) => setPwd({ ...pwd, password: e.target.value })} />
+            <PasswordInput autoComplete="new-password" minLength={8} className={inputCls} value={pwd.password} onChange={(e) => setPwd({ ...pwd, password: e.target.value })} />
           </label>
           <label className="block">
             <span className="block text-slate-500 mb-1">Confirmer le mot de passe</span>
-            <input type="password" autoComplete="new-password" minLength={8} className={inputCls} value={pwd.confirm} onChange={(e) => setPwd({ ...pwd, confirm: e.target.value })} />
+            <PasswordInput autoComplete="new-password" minLength={8} className={inputCls} value={pwd.confirm} onChange={(e) => setPwd({ ...pwd, confirm: e.target.value })} />
           </label>
         </div>
         <button

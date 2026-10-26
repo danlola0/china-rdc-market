@@ -4,6 +4,8 @@ import {
   AgencyBranch,
   AgencyCustomer,
   AgencyExpense,
+  AgencyIncome,
+  AgencyInvoice,
   AgencyMember,
   AgencySettings,
   AgencyShipment,
@@ -22,6 +24,8 @@ export interface TableRowMap {
   agency_members: AgencyMember;
   agency_customers: AgencyCustomer;
   agency_expenses: AgencyExpense;
+  agency_incomes: AgencyIncome;
+  agency_invoices: AgencyInvoice;
   agency_shipments: AgencyShipment;
   agency_shipment_events: AgencyShipmentEvent;
   agency_settings: AgencySettings;
@@ -50,10 +54,13 @@ const toEntity = <T,>(table: TableName, row: Record<string, any>): T => {
 };
 
 // Colonnes d'agency_settings modifiables uniquement par l'administrateur (fonction admin_set_subscription)
-const SETTINGS_ADMIN_ONLY = ['id', 'plan', 'subscriptionStatus', 'subscriptionExpiresAt', 'subscriptionNote'];
+const SETTINGS_ADMIN_ONLY = ['id', 'plan', 'subscriptionStatus', 'subscriptionExpiresAt', 'subscriptionNote', 'subscriptionEndsAt', 'trialEndsAt'];
+
+// Numéro et date de création d'une facture : attribués par la base, jamais envoyés
+const INVOICE_READONLY = ['seq', 'number', 'createdAt'];
 
 const toDbRow = (table: TableName, obj: Record<string, any>) =>
-  toRow(obj, table === 'agency_settings' ? SETTINGS_ADMIN_ONLY : []);
+  toRow(obj, table === 'agency_settings' ? SETTINGS_ADMIN_ONLY : table === 'agency_invoices' ? INVOICE_READONLY : []);
 
 const check = <T,>(res: { data: T; error: any }): T => {
   if (res.error) throw res.error;

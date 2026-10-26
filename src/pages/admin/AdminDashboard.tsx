@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Activity,
   Building2,
@@ -25,9 +25,10 @@ import { AgencyActivity, AgencyBranch, AgencyMember, AgencySettings, Subscriptio
 import { NumberInput } from '../../components/common/NumberInput';
 import { MODULES, ROLE_LABELS } from '../../agency/permissions';
 import { PLANS, SUBSCRIPTION_STATUS } from '../../agency/pages/SubscriptionPage';
-import { Badge, btn, Card, ConfirmDialog, EmptyState, Field, inputClass, Modal, StatCard } from '../../agency/ui';
+import { Badge, btn, Card, ConfirmDialog, EmptyState, Field, inputClass, Modal, Pagination, StatCard, usePagination } from '../../agency/ui';
 import { formatDate, formatDateTime, formatMoney } from '../../agency/utils';
 import { AgencyReview } from './AgencyReview';
+import { SubscriptionCodes } from './SubscriptionCodes';
 import {
   deleteAgency,
   inviteAdmin,
@@ -42,6 +43,8 @@ import {
   sendPasswordReset,
   setPlatformAdmin,
   setSubscription,
+  clearActivity,
+  deleteActivities,
 } from './adminService';
 
 type Tab = 'overview' | 'agencies' | 'approvals' | 'subscriptions' | 'users' | 'products' | 'activity';
@@ -445,7 +448,12 @@ const InviteAdminDialog: React.FC<{ open: boolean; onClose: () => void; onDone: 
 export const AdminDashboard: React.FC = () => {
   const navigate = useNavigate();
   const { agencies, products, orders, rfqs, deleteProduct, addToast, refreshData, profile } = useApp();
-  const [tab, setTab] = useState<Tab>('overview');
+  const [params, setParams] = useSearchParams();
+  const [tab, setTabState] = useState<Tab>(() => (params.get('tab') as Tab) || 'overview');
+  const setTab = (t: Tab) => {
+    setTabState(t);
+    if (params.get('tab')) setParams({}, { replace: true });
+  };
   const [users, setUsers] = useState<PlatformUser[]>([]);
   const [members, setMembers] = useState<AgencyMember[]>([]);
   const [settings, setSettings] = useState<AgencySettings[]>([]);
@@ -511,6 +519,31 @@ export const AdminDashboard: React.FC = () => {
 
   const filteredUsers = users.filter((u) => [u.fullName, u.email, u.agencies].join(' ').toLowerCase().includes(userSearch.toLowerCase()));
   const filteredActivity = activity.filter((a) => activityAgency === 'all' || a.agencyId === activityAgency);
+  const usersPager = usePagination(filteredUsers);
+  const activityPager = usePagination(filteredActivity);
+  const recentPager = usePagination(activity);
+
+  // Journal d'activité : sélection et suppression
+  const [selectedActivity, setSelectedActivity] = useState<string[]>([]);
+  const [activityDelete, setActivityDelete] = useState<{ ids: string[]; all?: boolean } | null>(null);
+  const toggleActivity = (id: string) => setSelectedActivity((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]));
+  const confirmActivityDelete = async () => {
+    if (!activityDelete) return;
+    try {
+      const n = activityDelete.all
+        ? await clearActivity(activityAgency === 'all' ? null : activityAgency)
+        : await deleteActivities(activityDelete.ids);
+      setActivity((cur) =>
+        activityDelete.all
+          ? cur.filter((a) => activityAgency !== 'all' && a.agencyId !== activityAgency)
+          : cur.filter((a) => !activityDelete.ids.includes(a.id))
+      );
+      setSelectedActivity((cur) => cur.filter((id) => !activityDelete.ids.includes(id)));
+      addToast(`${n} activité(s) supprimée(s).`, 'success');
+    } catch (e) {
+      addToast(errorMessage(e), 'error');
+    }
+  };
 
   const tabs: { key: Tab; label: string; icon: React.ElementType; count?: number }[] = [
     { key: 'overview', label: 'Vue d’ensemble', icon: LayoutDashboard },
@@ -604,21 +637,36 @@ export const AdminDashboard: React.FC = () => {
             </div>
           )}
 
-          <Card title="Activité récente sur la plateforme">
+          <Card
+            title="Activité récente sur la plateforme"
+            actions={
+              activity.length > 0 && (
+                <button className={btn.secondary} onClick={() => setTab('activity')}>
+                  Tout le journal
+                </button>
+              )
+            }
+          >
             {activity.length === 0 ? (
               <EmptyState icon={Activity} title="Aucune activité pour le moment" />
             ) : (
-              <ul className="divide-y divide-slate-100">
-                {activity.slice(0, 10).map((a) => (
-                  <li key={a.id} className="py-2 flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3">
-                    <span className="text-[11px] text-slate-400 sm:w-32 shrink-0">{formatDateTime(a.createdAt)}</span>
-                    <span className="font-semibold text-[#123B70] sm:w-40 truncate">{agencyName(a.agencyId)}</span>
-                    <span className="text-slate-700">
-                      <strong>{a.actorName}</strong> {a.description}
-                    </span>
-                  </li>
-                ))}
-              </ul>
+              <>
+                <ul className="divide-y divide-slate-100 -mx-5">
+                  {recentPager.items.map((a) => (
+                    <li key={a.id} className="px-5 py-2 flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3">
+                      <span className="text-[11px] text-slate-400 sm:w-32 shrink-0">{formatDateTime(a.createdAt)}</span>
+                      <span className="font-semibold text-[#123B70] sm:w-40 truncate">{agencyName(a.agencyId)}</span>
+                      <span className="text-slate-700 flex-1">
+                        <strong>{a.actorName}</strong> {a.description}
+                      </span>
+                      <button className={`${btn.icon} self-end sm:self-auto`} title="Supprimer cette activité" onClick={() => setActivityDelete({ ids: [a.id] })}>
+                        <Trash2 className="w-4 h-4 text-rose-600" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+                <Pagination pager={recentPager} className="-mx-5 -mb-5 mt-2" />
+              </>
             )}
           </Card>
         </div>
@@ -731,7 +779,8 @@ export const AdminDashboard: React.FC = () => {
       {/* Abonnements */}
       {tab === 'subscriptions' && (
         <div className="space-y-4">
-          <p className="text-slate-500">Les agences paient hors du site (Mobile Money, virement…). Après réception du paiement, activez leur formule ici.</p>
+          <SubscriptionCodes agencies={agencies} settingsOf={settingsOf} onChanged={load} />
+          <p className="text-slate-500 pt-2">Gestion manuelle : vous pouvez aussi modifier directement la formule et la date de fin d’une agence.</p>
           <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
             {agencies.length === 0 ? (
               <EmptyState icon={CreditCard} title="Aucune agence" />
@@ -762,7 +811,7 @@ export const AdminDashboard: React.FC = () => {
                               {s && <Badge className={SUBSCRIPTION_STATUS[s.subscriptionStatus].cls}>{SUBSCRIPTION_STATUS[s.subscriptionStatus].label}</Badge>}
                             </td>
                             <td className={`p-3 hidden sm:table-cell ${expired ? 'text-rose-600 font-semibold' : 'text-slate-600'}`}>
-                              {s?.subscriptionExpiresAt ? formatDate(s.subscriptionExpiresAt) : '—'}
+                              {s?.subscriptionStatus === 'trial' && s.trialEndsAt ? `Essai jusqu’au ${formatDateTime(s.trialEndsAt)}` : s?.subscriptionStatus === 'active' && s.plan === 'enterprise' ? 'À vie' : s?.subscriptionEndsAt ? formatDateTime(s.subscriptionEndsAt) : s?.subscriptionExpiresAt ? formatDate(s.subscriptionExpiresAt) : '—'}
                             </td>
                             <td className="p-3 hidden md:table-cell">
                               {s?.requestedPlan ? <Badge className="bg-amber-100 text-amber-800">{planName(s.requestedPlan)}</Badge> : '—'}
@@ -803,60 +852,63 @@ export const AdminDashboard: React.FC = () => {
             {filteredUsers.length === 0 ? (
               <EmptyState icon={Users} title="Aucun utilisateur" />
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left">
-                  <thead className="bg-slate-50 text-slate-500">
-                    <tr>
-                      <th className="p-3 font-semibold">Utilisateur</th>
-                      <th className="p-3 font-semibold">Type</th>
-                      <th className="p-3 font-semibold hidden lg:table-cell">Agences</th>
-                      <th className="p-3 font-semibold hidden md:table-cell">Inscrit le</th>
-                      <th className="p-3 font-semibold hidden md:table-cell">Dernière connexion</th>
-                      <th className="p-3 font-semibold text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {filteredUsers.map((u) => (
-                      <tr key={u.id} className="hover:bg-slate-50">
-                        <td className="p-3">
-                          <div className="font-semibold text-slate-900">
-                            {u.fullName || '—'} {u.isAdmin && <Badge className="bg-purple-100 text-purple-800 ml-1">Admin</Badge>}
-                          </div>
-                          <div className="text-[11px] text-slate-400 break-all">{u.email}</div>
-                          {!u.emailConfirmedAt && <div className="text-[11px] text-amber-700">Email non confirmé</div>}
-                        </td>
-                        <td className="p-3">{u.isAdmin ? 'Administrateur' : u.accountType === 'agency' ? 'Agence' : 'Acheteur'}</td>
-                        <td className="p-3 hidden lg:table-cell text-slate-600">{u.agencies || '—'}</td>
-                        <td className="p-3 hidden md:table-cell text-slate-500">{formatDate(u.createdAt)}</td>
-                        <td className="p-3 hidden md:table-cell text-slate-500">{u.lastSignInAt ? formatDateTime(u.lastSignInAt) : 'Jamais'}</td>
-                        <td className="p-3">
-                          <div className="flex justify-end gap-1">
-                            <button
-                              className={btn.icon}
-                              title="Envoyer un lien pour choisir un nouveau mot de passe"
-                              onClick={async () => {
-                                try {
-                                  await sendPasswordReset(u.email);
-                                  addToast(`Lien de nouveau mot de passe envoyé à ${u.email}.`, 'success');
-                                } catch (e) {
-                                  addToast(errorMessage(e), 'error');
-                                }
-                              }}
-                            >
-                              <KeyRound className="w-4 h-4" />
-                            </button>
-                            {u.id !== profile?.id && (
-                              <button className={btn.icon} title={u.isAdmin ? 'Retirer les droits d’administrateur' : 'Nommer administrateur'} onClick={() => setAdminChange(u)}>
-                                {u.isAdmin ? <ShieldOff className="w-4 h-4" /> : <ShieldCheck className="w-4 h-4" />}
-                              </button>
-                            )}
-                          </div>
-                        </td>
+              <>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left">
+                    <thead className="bg-slate-50 text-slate-500">
+                      <tr>
+                        <th className="p-3 font-semibold">Utilisateur</th>
+                        <th className="p-3 font-semibold">Type</th>
+                        <th className="p-3 font-semibold hidden lg:table-cell">Agences</th>
+                        <th className="p-3 font-semibold hidden md:table-cell">Inscrit le</th>
+                        <th className="p-3 font-semibold hidden md:table-cell">Dernière connexion</th>
+                        <th className="p-3 font-semibold text-right">Actions</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {usersPager.items.map((u) => (
+                        <tr key={u.id} className="hover:bg-slate-50">
+                          <td className="p-3">
+                            <div className="font-semibold text-slate-900">
+                              {u.fullName || '—'} {u.isAdmin && <Badge className="bg-purple-100 text-purple-800 ml-1">Admin</Badge>}
+                            </div>
+                            <div className="text-[11px] text-slate-400 break-all">{u.email}</div>
+                            {!u.emailConfirmedAt && <div className="text-[11px] text-amber-700">Email non confirmé</div>}
+                          </td>
+                          <td className="p-3">{u.isAdmin ? 'Administrateur' : u.accountType === 'agency' ? 'Agence' : 'Acheteur'}</td>
+                          <td className="p-3 hidden lg:table-cell text-slate-600">{u.agencies || '—'}</td>
+                          <td className="p-3 hidden md:table-cell text-slate-500">{formatDate(u.createdAt)}</td>
+                          <td className="p-3 hidden md:table-cell text-slate-500">{u.lastSignInAt ? formatDateTime(u.lastSignInAt) : 'Jamais'}</td>
+                          <td className="p-3">
+                            <div className="flex justify-end gap-1">
+                              <button
+                                className={btn.icon}
+                                title="Envoyer un lien pour choisir un nouveau mot de passe"
+                                onClick={async () => {
+                                  try {
+                                    await sendPasswordReset(u.email);
+                                    addToast(`Lien de nouveau mot de passe envoyé à ${u.email}.`, 'success');
+                                  } catch (e) {
+                                    addToast(errorMessage(e), 'error');
+                                  }
+                                }}
+                              >
+                                <KeyRound className="w-4 h-4" />
+                              </button>
+                              {u.id !== profile?.id && (
+                                <button className={btn.icon} title={u.isAdmin ? 'Retirer les droits d’administrateur' : 'Nommer administrateur'} onClick={() => setAdminChange(u)}>
+                                  {u.isAdmin ? <ShieldOff className="w-4 h-4" /> : <ShieldCheck className="w-4 h-4" />}
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <Pagination pager={usersPager} />
+              </>
             )}
           </div>
         </div>
@@ -915,35 +967,70 @@ export const AdminDashboard: React.FC = () => {
         <Card
           title="Journal de toutes les agences"
           actions={
-            <select className={`${inputClass} w-56`} value={activityAgency} onChange={(e) => setActivityAgency(e.target.value)} aria-label="Agence">
-              <option value="all">Toutes les agences</option>
-              {agencies.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name}
-                </option>
-              ))}
-            </select>
+            <div className="flex flex-wrap items-center gap-2">
+              <select className={`${inputClass} w-56`} value={activityAgency} onChange={(e) => setActivityAgency(e.target.value)} aria-label="Agence">
+                <option value="all">Toutes les agences</option>
+                {agencies.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}
+                  </option>
+                ))}
+              </select>
+              {selectedActivity.length > 0 && (
+                <button className={btn.danger} onClick={() => setActivityDelete({ ids: selectedActivity })}>
+                  <Trash2 className="w-4 h-4" /> Supprimer la sélection ({selectedActivity.length})
+                </button>
+              )}
+              {filteredActivity.length > 0 && (
+                <button className={btn.secondary} onClick={() => setActivityDelete({ ids: filteredActivity.map((a) => a.id), all: true })}>
+                  <Trash2 className="w-4 h-4 text-rose-600" /> Tout effacer
+                </button>
+              )}
+            </div>
           }
         >
           {filteredActivity.length === 0 ? (
             <EmptyState icon={Activity} title="Aucune activité" />
           ) : (
-            <ul className="divide-y divide-slate-100">
-              {filteredActivity.map((a) => (
-                <li key={a.id} className="py-2 flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3">
+            <ul className="divide-y divide-slate-100 -mx-5">
+              {activityPager.items.map((a) => (
+                <li key={a.id} className="px-5 py-2 flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3">
+                  <input
+                    type="checkbox"
+                    className="w-4 h-4 accent-[#123B70] cursor-pointer self-start sm:self-auto"
+                    checked={selectedActivity.includes(a.id)}
+                    onChange={() => toggleActivity(a.id)}
+                    aria-label="Sélectionner cette activité"
+                  />
                   <span className="text-[11px] text-slate-400 sm:w-32 shrink-0">{formatDateTime(a.createdAt)}</span>
                   <span className="font-semibold text-[#123B70] sm:w-40 truncate">{agencyName(a.agencyId)}</span>
                   <span className="text-slate-700 flex-1">
                     <strong>{a.actorName}</strong> {a.description}
                   </span>
                   <Badge className="bg-slate-100 text-slate-600 self-start sm:self-auto">{MODULES.find((m) => m.key === a.module)?.label}</Badge>
+                  <button className={`${btn.icon} self-end sm:self-auto`} title="Supprimer cette activité" onClick={() => setActivityDelete({ ids: [a.id] })}>
+                    <Trash2 className="w-4 h-4 text-rose-600" />
+                  </button>
                 </li>
               ))}
             </ul>
           )}
+          <Pagination pager={activityPager} className="-mx-5 mt-2" />
           <p className="mt-3 text-[11px] text-slate-400">200 dernières actions.</p>
         </Card>
       )}
+
+      <ConfirmDialog
+        open={!!activityDelete}
+        title={activityDelete?.all ? 'Effacer le journal' : 'Supprimer des activités'}
+        text={
+          activityDelete?.all
+            ? `Toutes les activités ${activityAgency === 'all' ? 'de toutes les agences' : `de « ${agencyName(activityAgency)} »`} seront définitivement supprimées.`
+            : `${activityDelete?.ids.length || 0} activité(s) seront définitivement supprimée(s) du journal.`
+        }
+        onClose={() => setActivityDelete(null)}
+        onConfirm={confirmActivityDelete}
+      />
 
       <AgencyDetail
         agency={detail ? agencies.find((x) => x.id === detail.id) || detail : null}

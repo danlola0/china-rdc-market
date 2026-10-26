@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { CheckCircle2, Circle, MessageCircle, Package, Plane, Ship } from 'lucide-react';
+import { CheckCircle2, Circle, MapPin, MessageCircle, Package, Plane, Ship, Wallet } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { ShipmentMode, ShipmentStatus } from '../../agency/types';
-import { SHIPMENT_MODE_LABELS, SHIPMENT_STATUS_LABELS, SHIPMENT_STATUS_ORDER, whatsappUrl } from '../../agency/utils';
+import { formatMoney, PAYMENT_METHOD_LABELS, SHIPMENT_MODE_LABELS, SHIPMENT_STATUS_LABELS, SHIPMENT_STATUS_ORDER, whatsappUrl } from '../../agency/utils';
+import { PaymentMethod } from '../../agency/types';
 
 interface PublicTracking {
   trackingRef: string;
@@ -19,6 +20,9 @@ interface PublicTracking {
   agencyPhone: string;
   agencyLogo: string;
   events: { status: ShipmentStatus; note: string; createdAt: string }[];
+  amountDue?: number;
+  amountPaid?: number;
+  paymentMethods?: PaymentMethod[];
 }
 
 const dateTime = (iso: string) =>
@@ -131,6 +135,61 @@ export const TrackingPage: React.FC = () => {
           })}
         </ol>
       </div>
+
+      {/* Toutes les étapes enregistrées par l'agence, la plus récente en premier */}
+      {data.events.length > 1 && (
+        <div className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6">
+          <h2 className="text-sm font-bold text-slate-900 mb-3">Historique détaillé</h2>
+          <ol className="space-y-2.5">
+            {[...data.events].reverse().map((ev, i) => (
+              <li key={i} className="flex gap-2.5 text-xs">
+                <MapPin className={`w-4 h-4 shrink-0 mt-0.5 ${i === 0 ? 'text-[#FF8A00]' : 'text-slate-300'}`} />
+                <div>
+                  <p className={`font-semibold ${i === 0 ? 'text-slate-900' : 'text-slate-600'}`}>{ev.note || SHIPMENT_STATUS_LABELS[ev.status]}</p>
+                  <p className="text-slate-400">{dateTime(ev.createdAt)}</p>
+                </div>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+
+      {/* Paiement */}
+      {(data.amountDue ?? 0) > 0 && (
+        <div className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6">
+          <h2 className="text-sm font-bold text-slate-900 mb-3 flex items-center gap-2">
+            <Wallet className="w-4 h-4 text-[#123B70]" /> Paiement
+          </h2>
+          {(() => {
+            const due = data.amountDue || 0;
+            const paid = data.amountPaid || 0;
+            const rest = Math.max(0, due - paid);
+            return (
+              <div className="space-y-3">
+                <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                  <div className="rounded-lg bg-slate-50 p-2.5">
+                    <div className="text-slate-500">Fret</div>
+                    <div className="font-bold text-slate-900">{formatMoney(due)}</div>
+                  </div>
+                  <div className="rounded-lg bg-emerald-50 p-2.5">
+                    <div className="text-emerald-700">Payé</div>
+                    <div className="font-bold text-emerald-800">{formatMoney(paid)}</div>
+                  </div>
+                  <div className={`rounded-lg p-2.5 ${rest > 0 ? 'bg-amber-50' : 'bg-emerald-50'}`}>
+                    <div className={rest > 0 ? 'text-amber-700' : 'text-emerald-700'}>Reste</div>
+                    <div className={`font-bold ${rest > 0 ? 'text-amber-800' : 'text-emerald-800'}`}>{rest > 0 ? formatMoney(rest) : 'Soldé'}</div>
+                  </div>
+                </div>
+                {data.paymentMethods && data.paymentMethods.length > 0 && (
+                  <p className="text-xs text-slate-500">
+                    Payé par : <span className="font-semibold text-slate-700">{data.paymentMethods.map((m) => PAYMENT_METHOD_LABELS[m] || m).join(', ')}</span>
+                  </p>
+                )}
+              </div>
+            );
+          })()}
+        </div>
+      )}
 
       {data.agencyPhone && (
         <a

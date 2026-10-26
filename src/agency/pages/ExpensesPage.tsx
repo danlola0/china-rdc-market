@@ -5,7 +5,7 @@ import { Download, Paperclip, Pencil, Plus, Receipt, Trash2, Upload } from 'luci
 import { useApp } from '../../context/AppContext';
 import { useWorkspace } from '../AgencyWorkspaceContext';
 import { AgencyExpense, Currency, ExpenseCategory, PaymentMethod } from '../types';
-import { BarList, btn, Card, CHART_COLORS, ColumnChart, ConfirmDialog, EmptyState, Field, inputClass, Modal, PageHeader, PaymentMethodPicker, StatCard } from '../ui';
+import { BarList, btn, Card, CHART_COLORS, ColumnChart, ConfirmDialog, EmptyState, Field, inputClass, Modal, PageHeader, PaymentMethodPicker, StatCard, Pagination, usePagination } from '../ui';
 import {
   compressImage,
   downloadCSV,
@@ -48,7 +48,7 @@ const ExpenseForm: React.FC<{ open: boolean; initial: Partial<AgencyExpense>; on
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (await saveExpense({ ...form, amount: Number(form.amount) })) onClose();
+    if (await saveExpense({ ...form, date: form.date || todayISO(), description: form.description || EXPENSE_CATEGORY_LABELS[form.category as ExpenseCategory] || '', amount: Number(form.amount) })) onClose();
   };
 
   return (
@@ -69,10 +69,10 @@ const ExpenseForm: React.FC<{ open: boolean; initial: Partial<AgencyExpense>; on
       }
     >
       <form id="expense-form" onSubmit={submit} className="grid sm:grid-cols-2 gap-4">
-        <Field label="Date" required>
-          <input type="date" className={inputClass} value={form.date || ''} max={todayISO()} onChange={(e) => setForm({ ...form, date: e.target.value })} required />
+        <Field label="Date" hint="Aujourd’hui si vide">
+          <input type="date" className={inputClass} value={form.date || ''} max={todayISO()} onChange={(e) => setForm({ ...form, date: e.target.value })} />
         </Field>
-        <Field label="Catégorie" required>
+        <Field label="Catégorie">
           <select className={inputClass} value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value as ExpenseCategory })}>
             {Object.entries(EXPENSE_CATEGORY_LABELS).map(([k, v]) => (
               <option key={k} value={k}>
@@ -84,15 +84,15 @@ const ExpenseForm: React.FC<{ open: boolean; initial: Partial<AgencyExpense>; on
         <Field label="Montant" required>
           <NumberInput className={inputClass} value={form.amount} onChange={(v) => setForm({ ...form, amount: v as any })} required placeholder="Ex. 150" />
         </Field>
-        <Field label="Devise" required>
+        <Field label="Devise">
           <select className={inputClass} value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value as Currency })}>
             <option value="USD">USD — Dollar américain</option>
             <option value="CDF">CDF — Franc congolais</option>
             <option value="CNY">CNY — Yuan chinois</option>
           </select>
         </Field>
-        <Field label="Description" required className="sm:col-span-2">
-          <input className={inputClass} value={form.description || ''} onChange={(e) => setForm({ ...form, description: e.target.value })} required />
+        <Field label="Description" className="sm:col-span-2">
+          <input className={inputClass} value={form.description || ''} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Facultatif" />
         </Field>
         <BranchSelect label="Succursale" value={form.branchId ?? defaultBranchId} onChange={(id) => setForm({ ...form, branchId: id })} restrictToMine />
         <Field label="Responsable">
@@ -197,6 +197,8 @@ export const ExpensesPage: React.FC = () => {
     );
     logActivity('expenses', 'a exporté l’historique des dépenses');
   };
+
+  const pager = usePagination(filtered);
 
   return (
     <>
@@ -319,63 +321,66 @@ export const ExpensesPage: React.FC = () => {
         {filtered.length === 0 ? (
           <EmptyState icon={Receipt} title="Aucune dépense" text="Aucune dépense ne correspond à ces filtres." />
         ) : (
-          <div className="overflow-x-auto -mx-5">
-            <table className="w-full text-xs text-left">
-              <thead className="bg-slate-50 text-slate-500">
-                <tr>
-                  <th className="px-5 py-2 font-semibold">Date</th>
-                  <th className="px-3 py-2 font-semibold">Description</th>
-                  <th className="px-3 py-2 font-semibold hidden md:table-cell">Responsable</th>
-                  <th className="px-3 py-2 font-semibold hidden md:table-cell">Paiement</th>
-                  <th className="px-3 py-2 font-semibold text-right">Montant</th>
-                  <th className="px-5 py-2 font-semibold text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {filtered.map((e) => (
-                  <tr key={e.id} className="hover:bg-slate-50">
-                    <td className="px-5 py-2.5 whitespace-nowrap text-slate-600">{formatDate(e.date)}</td>
-                    <td className="px-3 py-2.5">
-                      <div className="text-slate-900">{e.description}</div>
-                      <div className="text-[11px] text-slate-400">
-                        {EXPENSE_CATEGORY_LABELS[e.category]}
-                        <span className="md:hidden"> · {PAYMENT_METHOD_LABELS[e.paymentMethod]}</span>
-                      </div>
-                    </td>
-                    <td className="px-3 py-2.5 hidden md:table-cell text-slate-600">{e.responsibleName}</td>
-                    <td className="px-3 py-2.5 hidden md:table-cell text-slate-600">{PAYMENT_METHOD_LABELS[e.paymentMethod]}</td>
-                    <td className="px-3 py-2.5 text-right tabular-nums font-semibold text-slate-900 whitespace-nowrap">{formatMoney(e.amount, e.currency)}</td>
-                    <td className="px-5 py-2.5">
-                      <div className="flex justify-end gap-1">
-                        {e.receipt && (
-                          <button className={btn.icon} title={`Justificatif : ${e.receipt.name}`} onClick={() => setReceipt(e.receipt!)}>
-                            <Paperclip className="w-4 h-4" />
-                          </button>
-                        )}
-                        {can('expenses', 'edit') && (
-                          <button
-                            className={btn.icon}
-                            title="Modifier"
-                            onClick={() => {
-                              setEditing(e);
-                              setFormOpen(true);
-                            }}
-                          >
-                            <Pencil className="w-4 h-4" />
-                          </button>
-                        )}
-                        {can('expenses', 'delete') && (
-                          <button className={btn.icon} title="Supprimer" onClick={() => setDeleting(e)}>
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        )}
-                      </div>
-                    </td>
+          <>
+            <div className="overflow-x-auto -mx-5">
+              <table className="w-full text-xs text-left">
+                <thead className="bg-slate-50 text-slate-500">
+                  <tr>
+                    <th className="px-5 py-2 font-semibold">Date</th>
+                    <th className="px-3 py-2 font-semibold">Description</th>
+                    <th className="px-3 py-2 font-semibold hidden md:table-cell">Responsable</th>
+                    <th className="px-3 py-2 font-semibold hidden md:table-cell">Paiement</th>
+                    <th className="px-3 py-2 font-semibold text-right">Montant</th>
+                    <th className="px-5 py-2 font-semibold text-right">Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {pager.items.map((e) => (
+                    <tr key={e.id} className="hover:bg-slate-50">
+                      <td className="px-5 py-2.5 whitespace-nowrap text-slate-600">{formatDate(e.date)}</td>
+                      <td className="px-3 py-2.5">
+                        <div className="text-slate-900">{e.description}</div>
+                        <div className="text-[11px] text-slate-400">
+                          {EXPENSE_CATEGORY_LABELS[e.category]}
+                          <span className="md:hidden"> · {PAYMENT_METHOD_LABELS[e.paymentMethod]}</span>
+                        </div>
+                      </td>
+                      <td className="px-3 py-2.5 hidden md:table-cell text-slate-600">{e.responsibleName}</td>
+                      <td className="px-3 py-2.5 hidden md:table-cell text-slate-600">{PAYMENT_METHOD_LABELS[e.paymentMethod]}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums font-semibold text-slate-900 whitespace-nowrap">{formatMoney(e.amount, e.currency)}</td>
+                      <td className="px-5 py-2.5">
+                        <div className="flex justify-end gap-1">
+                          {e.receipt && (
+                            <button className={btn.icon} title={`Justificatif : ${e.receipt.name}`} onClick={() => setReceipt(e.receipt!)}>
+                              <Paperclip className="w-4 h-4" />
+                            </button>
+                          )}
+                          {can('expenses', 'edit') && (
+                            <button
+                              className={btn.icon}
+                              title="Modifier"
+                              onClick={() => {
+                                setEditing(e);
+                                setFormOpen(true);
+                              }}
+                            >
+                              <Pencil className="w-4 h-4" />
+                            </button>
+                          )}
+                          {can('expenses', 'delete') && (
+                            <button className={btn.icon} title="Supprimer" onClick={() => setDeleting(e)}>
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <Pagination pager={pager} />
+          </>
         )}
       </Card>
 

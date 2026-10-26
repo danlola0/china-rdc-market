@@ -3,11 +3,14 @@ import { useApp } from '../context/AppContext';
 import { Agency, Conversation, Order, Product, RFQ } from '../types';
 import { agencyService, newId } from './services/agencyService';
 import { clonePermissions, hasPermission, ROLE_LABELS } from './permissions';
+import { subscriptionAccess, SubscriptionAccess } from './subscription';
 import {
   AgencyActivity,
   AgencyBranch,
   AgencyCustomer,
   AgencyExpense,
+  AgencyIncome,
+  AgencyInvoice,
   AgencyMember,
   AgencyRole,
   AgencySettings,
@@ -87,12 +90,20 @@ export interface MemberInput {
 /** 'all' = toutes les succursales visibles, sinon l'identifiant d'une succursale */
 export type BranchFilter = 'all' | string;
 
+/** Options à l'enregistrement d'un colis : client créé à la volée, acompte payé */
+export interface ShipmentExtras {
+  newCustomer?: { name: string; phone: string; city: string };
+  initialPayment?: Omit<ShipmentPayment, 'id'>;
+}
+
 export interface ShipmentInput
   extends Omit<AgencyShipment, 'id' | 'agencyId' | 'trackingRef' | 'createdAt' | 'updatedAt' | 'payments' | 'status'> {
   trackingRef: string;
 }
 
 interface WorkspaceContextType {
+  /** Essai, abonnement actif ou expiré ; accès Premium (succursales, partenaires) */
+  access: SubscriptionAccess;
   profile: Profile;
   memberships: AgencyMember[];
   myAgencies: Agency[];
@@ -120,6 +131,13 @@ interface WorkspaceContextType {
   members: AgencyMember[];
   customers: AgencyCustomer[];
   expenses: AgencyExpense[];
+  /** Recettes saisies à la main dans la Caisse */
+  incomes: AgencyIncome[];
+  /** Factures de l'agence */
+  invoices: AgencyInvoice[];
+  /** Crée ou met à jour une facture ; renvoie la facture enregistrée (avec son numéro) */
+  saveInvoice: (invoice: Partial<AgencyInvoice> & { id?: string }) => Promise<AgencyInvoice | null>;
+  deleteInvoice: (id: string) => Promise<void>;
   shipments: AgencyShipment[];
   shipmentEvents: AgencyShipmentEvent[];
   settings: AgencySettings;
@@ -135,7 +153,11 @@ interface WorkspaceContextType {
   deleteCustomer: (id: string) => Promise<void>;
   saveExpense: (expense: Partial<AgencyExpense> & { id?: string }) => Promise<boolean>;
   deleteExpense: (id: string) => Promise<void>;
-  createShipment: (input: ShipmentInput) => Promise<AgencyShipment | null>;
+  saveIncome: (income: Partial<AgencyIncome> & { id?: string }) => Promise<boolean>;
+  deleteIncome: (id: string) => Promise<void>;
+  createShipment: (input: ShipmentInput, extras?: ShipmentExtras) => Promise<AgencyShipment | null>;
+  /** Étape de suivi pour un ou plusieurs colis (même statut possible : « a quitté Guangzhou »…) */
+  recordTrackingStep: (ids: string[], status: ShipmentStatus, note: string) => Promise<boolean>;
   updateShipment: (id: string, patch: Partial<AgencyShipment>) => Promise<boolean>;
   deleteShipment: (id: string) => Promise<void>;
   changeShipmentStatus: (id: string, status: ShipmentStatus, note: string) => Promise<void>;
@@ -145,6 +167,10 @@ interface WorkspaceContextType {
   removeMember: (id: string) => Promise<void>;
   setMemberPermissions: (id: string, permissions: PermissionMatrix) => Promise<void>;
   saveSettings: (patch: Partial<AgencySettings>) => Promise<void>;
+  /** Demande d'abonnement (formule, mode de paiement, référence de la transaction) */
+  requestSubscription: (patch: Pick<AgencySettings, 'requestedPlan' | 'requestedMethod' | 'requestedReference'>) => Promise<boolean>;
+  /** Recharge les données de l'agence (après activation d'un code) */
+  reloadWorkspace: () => Promise<void>;
   updateAgencyProfile: (patch: Partial<Agency>) => Promise<void>;
   logActivity: (module: ModuleKey, description: string) => Promise<void>;
 }
@@ -168,6 +194,8 @@ export const AgencyWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
   const [members, setMembers] = useState<AgencyMember[]>([]);
   const [customers, setCustomers] = useState<AgencyCustomer[]>([]);
   const [expenses, setExpenses] = useState<AgencyExpense[]>([]);
+  const [incomes, setIncomes] = useState<AgencyIncome[]>([]);
+  const [invoices, setInvoices] = useState<AgencyInvoice[]>([]);
   const [shipments, setShipments] = useState<AgencyShipment[]>([]);
   const [shipmentEvents, setShipmentEvents] = useState<AgencyShipmentEvent[]>([]);
   const [settingsRows, setSettingsRows] = useState<AgencySettings[]>([]);
@@ -230,6 +258,8 @@ export const AgencyWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
       setMembers([]);
       setCustomers([]);
       setExpenses([]);
+      setIncomes([]);
+      setInvoices([]);
       setShipments([]);
       setShipmentEvents([]);
       setSettingsRows([]);
@@ -243,7 +273,7 @@ export const AgencyWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
         console.error(err);
         return [] as T[];
       });
-    const [m, c, e, s, ev, st, a, br] = await Promise.all([
+    const [m, c, e, s, ev, st, a, br, inc, inv] = await Promise.all([
       safe(agencyService.list('agency_members', agencyId)),
       safe(agencyService.list('agency_customers', agencyId)),
       safe(agencyService.list('agency_expenses', agencyId)),
@@ -252,10 +282,14 @@ export const AgencyWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
       safe(agencyService.list('agency_settings', agencyId)),
       safe(agencyService.list('agency_activity', agencyId)),
       safe(agencyService.list('agency_branches', agencyId)),
+      safe(agencyService.list('agency_incomes', agencyId)),
+      safe(agencyService.list('agency_invoices', agencyId)),
     ]);
     setMembers(m);
     setCustomers(c.sort((x, y) => y.createdAt.localeCompare(x.createdAt)));
     setExpenses(e.sort((x, y) => y.date.localeCompare(x.date)));
+    setInvoices(inv.sort((x, y) => y.createdAt.localeCompare(x.createdAt)));
+    setIncomes(inc.sort((x, y) => y.date.localeCompare(x.date) || y.createdAt.localeCompare(x.createdAt)));
     setShipments(s.sort((x, y) => y.createdAt.localeCompare(x.createdAt)));
     setShipmentEvents(ev.sort((x, y) => x.createdAt.localeCompare(y.createdAt)));
     setSettingsRows(st);
@@ -346,6 +380,17 @@ export const AgencyWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
 
   const settings = settingsRows[0] || defaultSettings(activeAgencyId || '');
 
+  // Abonnement : l'heure avance, l'état d'accès est recalculé chaque minute
+  const [clock, setClock] = useState(() => Date.now());
+  useEffect(() => {
+    const t = window.setInterval(() => setClock(Date.now()), 60_000);
+    return () => window.clearInterval(t);
+  }, []);
+  const access = useMemo<SubscriptionAccess>(
+    () => (isPlatformAdmin ? { state: 'active', active: true, premium: true, endsAt: null, lifetime: true } : subscriptionAccess(settings, new Date(clock))),
+    [settings, clock, isPlatformAdmin]
+  );
+
   // ---------- Création d'agence / démonstration ----------
   const createAgency = async (input: NewAgencyInput, onProgress?: (step: string) => void) => {
     let agencyId: string | null = null;
@@ -361,7 +406,12 @@ export const AgencyWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
         onProgress?.(`Envoi des documents (${i + 1}/${input.documents.length})…`);
         await uploadDocument(agencyId, doc.docType, doc.file);
       }
-      addToast('Dossier envoyé. Votre agence sera visible sur le site après vérification par ASEP.', 'success');
+      addToast(
+        isPlatformAdmin
+          ? `L’agence « ${input.name} » a été créée avec succès.`
+          : 'Dossier envoyé. Votre agence sera visible sur le site après vérification par ASEP.',
+        'success'
+      );
       return true;
     } catch (e) {
       addToast(
@@ -373,7 +423,7 @@ export const AgencyWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
       return false;
     } finally {
       if (agencyId) {
-        lsSet(lsActiveAgency(profile.id), agencyId);
+        if (!isPlatformAdmin) lsSet(lsActiveAgency(profile.id), agencyId);
         await app.refreshData();
         await refreshMemberships();
       }
@@ -473,22 +523,149 @@ export const AgencyWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
     });
   };
 
+  // ---------- Caisse (recettes saisies à la main) ----------
+  const saveIncome: WorkspaceContextType['saveIncome'] = async (input) => {
+    if (!activeAgencyId) return false;
+    if (input.id) {
+      if (!guard('cash', 'edit')) return false;
+      return run(async () => {
+        await agencyService.update('agency_incomes', activeAgencyId, input.id!, input);
+        await logActivity('cash', `a modifié la recette « ${input.description || ''} »`);
+        await reload();
+        addToast('Recette mise à jour.', 'success');
+      });
+    }
+    if (!guard('cash', 'create')) return false;
+    return run(async () => {
+      const row: AgencyIncome = {
+        id: newId('income'),
+        agencyId: activeAgencyId,
+        date: input.date || new Date().toISOString().slice(0, 10),
+        amount: Number(input.amount) || 0,
+        currency: input.currency || settings.defaultCurrency,
+        category: input.category || 'other',
+        description: input.description || '',
+        customerName: input.customerName || '',
+        paymentMethod: input.paymentMethod || 'cash',
+        recordedBy: currentMember?.fullName || '',
+        branchId: input.branchId ?? defaultBranchId,
+        createdAt: new Date().toISOString(),
+      };
+      await agencyService.insert('agency_incomes', row);
+      await logActivity('cash', `a enregistré une recette de ${row.amount} ${row.currency}`);
+      await reload();
+      addToast('Recette enregistrée.', 'success');
+    });
+  };
+
+  const deleteIncome = async (id: string) => {
+    if (!activeAgencyId || !guard('cash', 'delete')) return;
+    const r = incomes.find((x) => x.id === id);
+    await run(async () => {
+      await agencyService.remove('agency_incomes', activeAgencyId, id);
+      await logActivity('cash', `a supprimé la recette « ${r?.description || ''} »`);
+      await reload();
+      addToast('Recette supprimée.', 'info');
+    });
+  };
+
+  // ---------- Factures ----------
+  const saveInvoice: WorkspaceContextType['saveInvoice'] = async (input) => {
+    if (!activeAgencyId) return null;
+    const { id, number, createdAt, createdBy, agencyId, ...patch } = input;
+    void number;
+    void createdAt;
+    void createdBy;
+    void agencyId;
+    let saved: AgencyInvoice | null = null;
+    if (id) {
+      if (!guard('invoices', 'edit')) return null;
+      await run(async () => {
+        saved = await agencyService.update('agency_invoices', activeAgencyId, id, { ...patch, updatedAt: new Date().toISOString() });
+        await reload();
+      });
+      return saved;
+    }
+    if (!guard('invoices', 'create')) return null;
+    await run(async () => {
+      const row = {
+        id: newId('invoice'),
+        agencyId: activeAgencyId,
+        customerName: '',
+        customerPhone: '',
+        customerEmail: '',
+        customerAddress: '',
+        issueDate: new Date().toISOString().slice(0, 10),
+        currency: settings.defaultCurrency,
+        items: [],
+        discount: 0,
+        taxRate: 0,
+        total: 0,
+        amountPaid: 0,
+        paymentMethod: '',
+        status: 'draft',
+        notes: '',
+        branchId: defaultBranchId,
+        ...patch,
+        createdBy: currentMember?.fullName || '',
+      } as AgencyInvoice;
+      saved = await agencyService.insert('agency_invoices', row);
+      await logActivity('invoices', `a créé la facture ${(saved as AgencyInvoice).number} pour ${row.customerName || 'un client'}`);
+      await reload();
+    });
+    return saved;
+  };
+
+  const deleteInvoice = async (id: string) => {
+    if (!activeAgencyId || !guard('invoices', 'delete')) return;
+    const inv = invoices.find((x) => x.id === id);
+    await run(async () => {
+      await agencyService.remove('agency_invoices', activeAgencyId, id);
+      await logActivity('invoices', `a supprimé la facture ${inv?.number || ''}`);
+      await reload();
+      addToast('Facture supprimée.', 'info');
+    });
+  };
+
   // ---------- Fret ----------
-  const createShipment = async (input: ShipmentInput) => {
+  const createShipment = async (input: ShipmentInput, extras: ShipmentExtras = {}) => {
     if (!activeAgencyId || !guard('freight', 'create')) return null;
+    if (extras.newCustomer && !guard('customers', 'create')) return null;
     const now = new Date().toISOString();
+    // Client créé directement depuis le formulaire du colis
+    const newCustomer: AgencyCustomer | null = extras.newCustomer
+      ? {
+          id: newId('customer'),
+          agencyId: activeAgencyId,
+          name: extras.newCustomer.name.trim(),
+          company: '',
+          phone: extras.newCustomer.phone.trim(),
+          email: '',
+          city: extras.newCustomer.city.trim(),
+          address: '',
+          status: 'active',
+          notes: '',
+          branchId: input.originBranchId ?? defaultBranchId,
+          createdAt: now,
+        }
+      : null;
     const row: AgencyShipment = {
       ...input,
+      ...(newCustomer ? { customerId: newCustomer.id, customerName: newCustomer.name } : {}),
       originBranchId: input.originBranchId ?? defaultBranchId,
       destinationBranchId: input.destinationBranchId ?? null,
       id: newId('shipment'),
       agencyId: activeAgencyId,
-      payments: [],
+      payments: extras.initialPayment && extras.initialPayment.amount > 0 ? [{ ...extras.initialPayment, id: newId('pay') }] : [],
       status: 'registered',
       createdAt: now,
       updatedAt: now,
     };
     const ok = await run(async () => {
+      if (newCustomer) {
+        await agencyService.insert('agency_customers', newCustomer);
+        await logActivity('customers', `a ajouté le client ${newCustomer.name}`);
+      }
       await agencyService.insert('agency_shipments', row);
       await agencyService.insert('agency_shipment_events', {
         id: newId('event'),
@@ -552,6 +729,35 @@ export const AgencyWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
     });
   };
 
+  const recordTrackingStep = async (ids: string[], status: ShipmentStatus, note: string) => {
+    if (!activeAgencyId || !guard('freight', 'edit')) return false;
+    const targets = shipments.filter((x) => ids.includes(x.id));
+    if (targets.length === 0) return false;
+    return run(async () => {
+      const now = new Date().toISOString();
+      for (const s of targets) {
+        await agencyService.update('agency_shipments', activeAgencyId, s.id, { status, updatedAt: now });
+        await agencyService.insert('agency_shipment_events', {
+          id: newId('event'),
+          agencyId: activeAgencyId,
+          shipmentId: s.id,
+          status,
+          note: note.trim() || SHIPMENT_STATUS_LABELS[status],
+          actorName: currentMember?.fullName || '',
+          createdAt: now,
+        });
+      }
+      await logActivity(
+        'freight',
+        targets.length === 1
+          ? `a mis à jour le suivi du colis ${targets[0].trackingRef} : ${note.trim() || SHIPMENT_STATUS_LABELS[status]}`
+          : `a mis à jour le suivi de ${targets.length} colis : ${note.trim() || SHIPMENT_STATUS_LABELS[status]}`
+      );
+      await reload();
+      addToast(targets.length === 1 ? 'Suivi mis à jour.' : `Suivi mis à jour pour ${targets.length} colis.`, 'success');
+    });
+  };
+
   const addShipmentPayment = async (id: string, payment: Omit<ShipmentPayment, 'id'>) => {
     if (!activeAgencyId || !guard('freight', 'edit')) return;
     const s = shipments.find((x) => x.id === id);
@@ -561,7 +767,7 @@ export const AgencyWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
         payments: [...s.payments, { ...payment, id: newId('pay') }],
         updatedAt: new Date().toISOString(),
       });
-      await logActivity('freight', `a enregistré un paiement de ${payment.amount} USD sur ${s.trackingRef}`);
+      await logActivity('freight', `a enregistré un paiement de ${payment.amount} ${payment.currency || 'USD'} sur ${s.trackingRef}`);
       await reload();
       addToast('Paiement enregistré.', 'success');
     });
@@ -741,6 +947,14 @@ export const AgencyWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
     });
   };
 
+  const requestSubscription: WorkspaceContextType['requestSubscription'] = async (patch) => {
+    if (!activeAgencyId || !guard('subscription', 'edit')) return false;
+    return run(async () => {
+      await agencyService.update('agency_settings', activeAgencyId, activeAgencyId, { ...patch, requestedAt: new Date().toISOString() });
+      await reload();
+    });
+  };
+
   const updateAgencyProfile = async (patch: Partial<Agency>) => {
     if (!activeAgencyId || !guard('settings', 'edit')) return;
     await app.updateAgency(activeAgencyId, patch);
@@ -764,6 +978,8 @@ export const AgencyWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
   const inBranch = (id?: string | null) => branchFilter === 'all' || id === branchFilter;
   const visibleCustomers = useMemo(() => customers.filter((c) => inBranch(c.branchId)), [customers, branchFilter]); // eslint-disable-line react-hooks/exhaustive-deps
   const visibleExpenses = useMemo(() => expenses.filter((e) => inBranch(e.branchId)), [expenses, branchFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+  const visibleInvoices = useMemo(() => invoices.filter((r) => inBranch(r.branchId)), [invoices, branchFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+  const visibleIncomes = useMemo(() => incomes.filter((r) => inBranch(r.branchId)), [incomes, branchFilter]); // eslint-disable-line react-hooks/exhaustive-deps
   const visibleShipments = useMemo(
     () => shipments.filter((sh) => branchFilter === 'all' || sh.originBranchId === branchFilter || sh.destinationBranchId === branchFilter),
     [shipments, branchFilter]
@@ -773,6 +989,7 @@ export const AgencyWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
     branches,
     headquarters,
     seesAllBranches,
+    access,
     branchFilter,
     setBranchFilter,
     defaultBranchId,
@@ -791,6 +1008,10 @@ export const AgencyWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
     members,
     customers: visibleCustomers,
     expenses: visibleExpenses,
+    incomes: visibleIncomes,
+    invoices: visibleInvoices,
+    saveInvoice,
+    deleteInvoice,
     shipments: visibleShipments,
     shipmentEvents,
     settings,
@@ -804,16 +1025,21 @@ export const AgencyWorkspaceProvider: React.FC<{ children: React.ReactNode }> = 
     deleteCustomer,
     saveExpense,
     deleteExpense,
+    saveIncome,
+    deleteIncome,
     createShipment,
     updateShipment,
     deleteShipment,
     changeShipmentStatus,
+    recordTrackingStep,
     addShipmentPayment,
     inviteMember,
     updateMember,
     removeMember,
     setMemberPermissions,
     saveSettings,
+    requestSubscription,
+    reloadWorkspace: () => reload(),
     updateAgencyProfile,
     logActivity,
   };

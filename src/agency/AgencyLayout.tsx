@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Link, NavLink, Outlet, useLocation, useSearchParams } from 'react-router-dom';
+import { Link, NavLink, Outlet, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   BarChart3,
   Building2,
@@ -8,6 +8,9 @@ import {
   LayoutDashboard,
   Menu,
   Handshake,
+  Route,
+  FileText,
+  Wallet,
   Network,
   MessageSquare,
   Package,
@@ -20,6 +23,9 @@ import {
   UserCog,
   Users,
   X,
+  Clock,
+  Crown,
+  Lock,
 } from 'lucide-react';
 import { useWorkspace } from './AgencyWorkspaceContext';
 import { useApp } from '../context/AppContext';
@@ -27,6 +33,7 @@ import { ROLE_LABELS } from './permissions';
 import { ModuleKey } from './types';
 import { CreateAgencyForm } from './pages/CreateAgencyForm';
 import { AccessDenied, btn, Modal } from './ui';
+import { localDateTime, PLAN_INFO, PREMIUM_PATHS, remainingLabel } from './subscription';
 
 export const NAV_ITEMS: { module: ModuleKey; path: string; label: string; icon: React.ElementType }[] = [
   { module: 'dashboard', path: '/agency', label: 'Tableau de bord', icon: LayoutDashboard },
@@ -34,8 +41,10 @@ export const NAV_ITEMS: { module: ModuleKey; path: string; label: string; icon: 
   { module: 'orders', path: '/agency/orders', label: 'Commandes', icon: ShoppingCart },
   { module: 'customers', path: '/agency/customers', label: 'Gestion clients', icon: Users },
   { module: 'expenses', path: '/agency/expenses', label: 'Dépenses', icon: Receipt },
+  { module: 'invoices', path: '/agency/invoices', label: 'Factures', icon: FileText },
   { module: 'freight', path: '/agency/freight', label: 'Fret & Logistique', icon: Truck },
   { module: 'freight', path: '/agency/parcels', label: 'Gestion colis', icon: PackageSearch },
+  { module: 'freight', path: '/agency/tracking', label: 'Suivi des colis', icon: Route },
   { module: 'conversations', path: '/agency/conversations', label: 'Conversations', icon: MessageSquare },
   { module: 'staff', path: '/agency/staff', label: 'Personnel & Permissions', icon: UserCog },
   { module: 'reports', path: '/agency/reports', label: 'Rapports', icon: BarChart3 },
@@ -43,7 +52,101 @@ export const NAV_ITEMS: { module: ModuleKey; path: string; label: string; icon: 
   { module: 'settings', path: '/agency/branches', label: 'Succursales', icon: Network },
   { module: 'settings', path: '/agency/partners', label: 'Partenaires', icon: Handshake },
   { module: 'settings', path: '/agency/settings', label: 'Paramètres', icon: Settings },
+  { module: 'cash', path: '/agency/cash', label: 'Caisse', icon: Wallet },
 ];
+
+/**
+ * Message affiché à la connexion : durée de l'essai (72 h) ou fin d'accès.
+ * Une fois par session de navigation et par agence.
+ */
+const SubscriptionNotice: React.FC = () => {
+  const { access, activeAgencyId, settings, can } = useWorkspace();
+  const { profile } = useApp();
+  const key = `asep_sub_notice_${activeAgencyId}`;
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (!activeAgencyId || profile?.isAdmin) return;
+    if (access.state !== 'trial' && access.active) return;
+    try {
+      if (sessionStorage.getItem(key)) return;
+    } catch {
+      // stockage indisponible : on affiche le message
+    }
+    setOpen(true);
+  }, [activeAgencyId, access.state, access.active]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const close = () => {
+    setOpen(false);
+    try {
+      sessionStorage.setItem(key, '1');
+    } catch {
+      // stockage indisponible
+    }
+  };
+
+  if (!open) return null;
+  const trial = access.state === 'trial';
+  return (
+    <Modal open title={trial ? 'Bienvenue sur ASEP MARKET' : 'Accès suspendu'} onClose={close}>
+      <div className="space-y-3 text-center">
+        {trial ? <Clock className="w-10 h-10 mx-auto text-[#123B70]" /> : <Lock className="w-10 h-10 mx-auto text-rose-500" />}
+        {trial ? (
+          <>
+            <p className="text-sm font-bold text-slate-900">Vous avez 3 jours (72 heures) d’utilisation gratuite de cette application.</p>
+            <p className="text-xs text-slate-600">
+              Après ce délai, l’application ne sera plus fonctionnelle : il faudra vous réabonner pour continuer à l’utiliser.
+            </p>
+            {access.endsAt && (
+              <p className="text-xs p-2.5 rounded-lg bg-blue-50 border border-blue-200 text-blue-900">
+                Il vous reste <strong>{remainingLabel(access.endsAt)}</strong> — fin le {localDateTime(access.endsAt)}.
+              </p>
+            )}
+          </>
+        ) : (
+          <>
+            <p className="text-sm font-bold text-slate-900">
+              {settings.subscriptionStatus === 'trial' ? 'Vos 72 heures d’essai gratuit sont terminées.' : 'Votre abonnement a expiré.'}
+            </p>
+            <p className="text-xs text-slate-600">L’application n’est plus fonctionnelle pour votre agence. Réabonnez-vous pour retrouver l’accès : vos données sont conservées.</p>
+          </>
+        )}
+        <div className="text-[11px] text-slate-500">
+          Formules : Standard {PLAN_INFO.standard.price} $ / mois · Premium {PLAN_INFO.gold.price} $ / mois · Achat complet {PLAN_INFO.enterprise.price.toLocaleString('fr-FR')} $
+        </div>
+        <div className="flex flex-col sm:flex-row gap-2 justify-center pt-1">
+          {can('subscription') && (
+            <Link to="/agency/subscription" onClick={close} className={btn.primary}>
+              {trial ? 'Voir les formules' : 'Me réabonner'}
+            </Link>
+          )}
+          <button className={btn.secondary} onClick={close}>
+            {trial ? 'Commencer l’essai' : 'Fermer'}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+};
+
+/** Rubrique réservée à Premium / Achat complet */
+export const PremiumGuard: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { access } = useWorkspace();
+  if (access.premium) return <>{children}</>;
+  return (
+    <div className="max-w-lg mx-auto text-center bg-white rounded-2xl border border-slate-200 p-8 space-y-3">
+      <Crown className="w-10 h-10 mx-auto text-amber-500" />
+      <h2 className="text-lg font-extrabold text-slate-900">Rubrique Premium</h2>
+      <p className="text-xs text-slate-600">
+        Les succursales et les agences partenaires sont incluses dans les formules <strong>Premium ({PLAN_INFO.gold.price} $ / mois)</strong> et{' '}
+        <strong>Achat complet ({PLAN_INFO.enterprise.price.toLocaleString('fr-FR')} $)</strong>.
+      </p>
+      <Link to="/agency/subscription" className={btn.primary}>
+        Passer à Premium
+      </Link>
+    </div>
+  );
+};
 
 /** Bloque une rubrique si le rôle de l'utilisateur ne permet pas de la consulter */
 export const ModuleGuard: React.FC<{ module: ModuleKey; children: React.ReactNode }> = ({ module, children }) => {
@@ -202,9 +305,13 @@ const Onboarding: React.FC = () => {
 };
 
 export const AgencyLayout: React.FC = () => {
-  const { ready, activeAgency, currentMember, can, settings } = useWorkspace();
+  const { ready, activeAgency, currentMember, can, settings, access } = useWorkspace();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+  // Ouvert depuis l'Espace Admin (« Ajouter une agence ») : on y retourne après la création
+  const [fromAdmin, setFromAdmin] = useState(false);
+  const navigate = useNavigate();
+  const { profile: appProfile } = useApp();
   const location = useLocation();
   const [params, setParams] = useSearchParams();
 
@@ -212,6 +319,7 @@ export const AgencyLayout: React.FC = () => {
   useEffect(() => {
     if (params.get('new') === '1') {
       setCreateOpen(true);
+      setFromAdmin(!!appProfile?.isAdmin);
       params.delete('new');
       setParams(params, { replace: true });
     }
@@ -246,21 +354,26 @@ export const AgencyLayout: React.FC = () => {
         <BranchSwitcher />
       </div>
       <nav className="flex-1 overflow-y-auto p-3 space-y-0.5" aria-label="Navigation de l’agence">
-        {items.map(({ path, label, icon: Icon }) => (
-          <NavLink
-            key={path}
-            to={path}
-            end={path === '/agency'}
-            className={({ isActive }) =>
-              `flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
-                isActive ? 'bg-white text-[#123B70] font-semibold' : 'text-blue-100 hover:bg-white/10 hover:text-white'
-              }`
-            }
-          >
-            <Icon className="w-4 h-4 shrink-0" />
-            {label}
-          </NavLink>
-        ))}
+        {items.map(({ path, label, icon: Icon }) => {
+          // Abonnement expiré : seule la rubrique Abonnement reste ouverte ; Standard : pas de succursales ni partenaires
+          const locked = (!access.active && path !== '/agency/subscription') || (access.active && !access.premium && PREMIUM_PATHS.includes(path));
+          return (
+            <NavLink
+              key={path}
+              to={path}
+              end={path === '/agency'}
+              className={({ isActive }) =>
+                `flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
+                  isActive ? 'bg-white text-[#123B70] font-semibold' : locked ? 'text-blue-200/60 hover:bg-white/5' : 'text-blue-100 hover:bg-white/10 hover:text-white'
+                }`
+              }
+            >
+              <Icon className="w-4 h-4 shrink-0" />
+              <span className="flex-1">{label}</span>
+              {locked && (access.active ? <Crown className="w-3.5 h-3.5 text-amber-300" aria-label="Premium" /> : <Lock className="w-3.5 h-3.5" aria-label="Verrouillé" />)}
+            </NavLink>
+          );
+        })}
       </nav>
       <div className="p-3 border-t border-white/10 space-y-2">
         <div className="flex items-center gap-2 px-2">
@@ -339,13 +452,73 @@ export const AgencyLayout: React.FC = () => {
                 )}
               </div>
             )}
-            <Outlet />
+            <SubscriptionNotice />
+            {/* Essai gratuit : temps restant, dans le fuseau horaire de l'utilisateur */}
+            {access.state === 'trial' && access.endsAt && location.pathname !== '/agency/subscription' && (
+              <div className="p-3 rounded-lg bg-blue-50 border border-blue-200 text-xs text-blue-900 flex flex-col sm:flex-row sm:items-center gap-2">
+                <Clock className="w-4 h-4 shrink-0 hidden sm:block" />
+                <span>
+                  <strong>Essai gratuit : il reste {remainingLabel(access.endsAt)}.</strong> Fin le {localDateTime(access.endsAt)}.
+                </span>
+                {can('subscription') && (
+                  <Link to="/agency/subscription" className="sm:ml-auto font-semibold underline whitespace-nowrap">
+                    Choisir une formule
+                  </Link>
+                )}
+              </div>
+            )}
+            {access.state === 'active' && access.endsAt && access.endsAt.getTime() - Date.now() < 5 * 86400000 && location.pathname !== '/agency/subscription' && (
+              <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-900 flex flex-col sm:flex-row sm:items-center gap-2">
+                <span>
+                  <strong>Votre abonnement se termine dans {remainingLabel(access.endsAt)}</strong> ({localDateTime(access.endsAt)}). Pensez à le renouveler.
+                </span>
+                {can('subscription') && (
+                  <Link to="/agency/subscription" className="sm:ml-auto font-semibold underline whitespace-nowrap">
+                    Renouveler
+                  </Link>
+                )}
+              </div>
+            )}
+            {!access.active && location.pathname !== '/agency/subscription' ? (
+              <div className="max-w-lg mx-auto text-center bg-white rounded-2xl border border-slate-200 p-8 space-y-3">
+                <Lock className="w-10 h-10 mx-auto text-rose-500" />
+                <h2 className="text-lg font-extrabold text-slate-900">
+                  {access.state === 'suspended' ? 'Abonnement suspendu' : settings.subscriptionStatus === 'trial' ? 'Votre essai gratuit est terminé' : 'Votre abonnement a expiré'}
+                </h2>
+                <p className="text-xs text-slate-600">
+                  Vos données sont conservées. Pour continuer à utiliser l’espace agence, réabonnez-vous : payez par Mobile Money, Alipay, WeChat, Equity Bank ou en espèces,
+                  puis saisissez le code d’activation reçu d’ASEP.
+                </p>
+                {can('subscription') ? (
+                  <Link to="/agency/subscription" className={btn.primary}>
+                    Me réabonner
+                  </Link>
+                ) : (
+                  <p className="text-[11px] text-slate-500">Contactez le propriétaire de l’agence pour renouveler l’abonnement.</p>
+                )}
+              </div>
+            ) : (
+              <Outlet />
+            )}
           </main>
         </div>
       </div>
 
-      <Modal open={createOpen} title="Inscrire une nouvelle agence" onClose={() => setCreateOpen(false)} size="xl">
-        <CreateAgencyForm onDone={() => setCreateOpen(false)} />
+      <Modal
+        open={createOpen}
+        title="Inscrire une nouvelle agence"
+        onClose={() => {
+          setCreateOpen(false);
+          if (fromAdmin) navigate('/admin?tab=agencies');
+        }}
+        size="xl"
+      >
+        <CreateAgencyForm
+          onDone={() => {
+            setCreateOpen(false);
+            if (fromAdmin || appProfile?.isAdmin) navigate('/admin?tab=agencies');
+          }}
+        />
       </Modal>
     </div>
   );

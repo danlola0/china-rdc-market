@@ -42,7 +42,7 @@ export const toRow = (obj: Record<string, any>, omit: string[] = []) => {
   const out: Record<string, any> = {};
   for (const [k, v] of Object.entries(obj)) {
     if (v === undefined || omit.includes(k)) continue;
-    out[toSnakeKey(k)] = v;
+    out[toSnakeKey(k)] = v === '' && k.endsWith('Id') ? null : v;
   }
   return out;
 };
@@ -67,6 +67,10 @@ const NUMERIC_KEYS = new Set([
   'length_cm',
   'width_cm',
   'height_cm',
+  'discount',
+  'tax_rate',
+  'total',
+  'amount_paid',
 ]);
 
 /** Message d'erreur lisible à partir d'une erreur Supabase */

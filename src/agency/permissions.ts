@@ -10,6 +10,8 @@ export const MODULES: { key: ModuleKey; label: string }[] = [
   { key: 'conversations', label: 'Conversations' },
   { key: 'staff', label: 'Personnel & Permissions' },
   { key: 'reports', label: 'Rapports' },
+  { key: 'cash', label: 'Caisse' },
+  { key: 'invoices', label: 'Factures' },
   { key: 'subscription', label: 'Abonnement' },
   { key: 'settings', label: 'Paramètres' },
 ];
@@ -55,6 +57,8 @@ const matrix = (m: Partial<PermissionMatrix>): PermissionMatrix => ({
   conversations: NONE,
   staff: NONE,
   reports: NONE,
+  cash: NONE,
+  invoices: NONE,
   subscription: NONE,
   settings: NONE,
   ...m,
@@ -72,6 +76,8 @@ export const DEFAULT_PERMISSIONS: Record<AgencyRole, PermissionMatrix> = {
     conversations: ALL,
     staff: ALL,
     reports: ALL,
+    cash: ALL,
+    invoices: ALL,
     subscription: ALL,
     settings: ALL,
   }),
@@ -85,6 +91,8 @@ export const DEFAULT_PERMISSIONS: Record<AgencyRole, PermissionMatrix> = {
     conversations: VCE,
     staff: VCE,
     reports: ['view', 'export'],
+    cash: V,
+    invoices: ALL,
     settings: V,
   }),
   accountant: matrix({
@@ -94,6 +102,8 @@ export const DEFAULT_PERMISSIONS: Record<AgencyRole, PermissionMatrix> = {
     expenses: ALL,
     freight: ['view', 'edit'],
     reports: ['view', 'export'],
+    cash: ALL,
+    invoices: ALL,
     subscription: V,
   }),
   freight_agent: matrix({
@@ -109,6 +119,7 @@ export const DEFAULT_PERMISSIONS: Record<AgencyRole, PermissionMatrix> = {
     customers: ['view', 'create', 'edit', 'export'],
     freight: V,
     conversations: VCE,
+    invoices: VCE,
   }),
   stock_manager: matrix({
     dashboard: V,

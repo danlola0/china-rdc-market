@@ -3,7 +3,7 @@ import { History, KeyRound, MailCheck, Pencil, Plus, Power, ShieldCheck, Trash2,
 import { MemberInput, useWorkspace } from '../AgencyWorkspaceContext';
 import { ACTIONS, clonePermissions, MODULES, ROLE_DESCRIPTIONS, ROLE_LABELS } from '../permissions';
 import { AgencyMember, AgencyRole, ModuleKey, PermissionAction, PermissionMatrix } from '../types';
-import { Badge, btn, Card, ConfirmDialog, EmptyState, Field, inputClass, Modal, PageHeader, Tabs } from '../ui';
+import { Badge, btn, Card, ConfirmDialog, EmptyState, Field, inputClass, Modal, PageHeader, Tabs, Pagination, usePagination } from '../ui';
 import { formatDate, formatDateTime } from '../utils';
 
 const STATUS: Record<AgencyMember['status'], { label: string; cls: string }> = {
@@ -128,7 +128,8 @@ const MemberForm: React.FC<{ open: boolean; member: AgencyMember | null; onClose
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const ok = member ? await updateMember(member.id, form) : await inviteMember(form);
+    const input = { ...form, fullName: form.fullName.trim() || form.email.split('@')[0] };
+    const ok = member ? await updateMember(member.id, input) : await inviteMember(input);
     if (ok) onClose();
   };
 
@@ -150,8 +151,8 @@ const MemberForm: React.FC<{ open: boolean; member: AgencyMember | null; onClose
     >
       <form id="member-form" onSubmit={submit} className="space-y-4">
         <div className="grid sm:grid-cols-2 gap-4">
-          <Field label="Nom complet" required>
-            <input className={inputClass} value={form.fullName} onChange={(e) => setForm({ ...form, fullName: e.target.value })} required />
+          <Field label="Nom complet">
+            <input className={inputClass} value={form.fullName} onChange={(e) => setForm({ ...form, fullName: e.target.value })} placeholder="Facultatif" />
           </Field>
           <Field label="Email" required>
             <input type="email" className={inputClass} value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required disabled={!!member} />
@@ -216,6 +217,10 @@ export const StaffPage: React.FC = () => {
     // Un responsable de succursale ne gère que le personnel de sa succursale
     (!currentMember?.branchId || currentMember.role === 'owner' || m.branchId === currentMember.branchId);
 
+  const membersPager = usePagination(sorted);
+
+  const historyPager = usePagination(history);
+
   return (
     <>
       <PageHeader
@@ -251,89 +256,92 @@ export const StaffPage: React.FC = () => {
             {members.length === 0 ? (
               <EmptyState icon={UserCog} title="Aucun membre" />
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs text-left">
-                  <thead className="bg-slate-50 text-slate-500">
-                    <tr>
-                      <th className="p-3 font-semibold">Employé</th>
-                      <th className="p-3 font-semibold">Rôle</th>
-                      {branches.length > 1 && <th className="p-3 font-semibold hidden md:table-cell">Succursale</th>}
-                      <th className="p-3 font-semibold hidden md:table-cell">Depuis</th>
-                      <th className="p-3 font-semibold">Statut</th>
-                      <th className="p-3 font-semibold text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {sorted.map((m) => (
-                      <tr key={m.id} className="hover:bg-slate-50">
-                        <td className="p-3">
-                          <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-full bg-[#123B70] text-white flex items-center justify-center font-bold shrink-0">
-                              {m.fullName.charAt(0).toUpperCase()}
-                            </div>
-                            <div className="min-w-0">
-                              <div className="font-semibold text-slate-900">
-                                {m.fullName}
-                                {m.id === currentMember?.id && <span className="ml-1 text-[10px] text-slate-400">(vous)</span>}
-                              </div>
-                              <div className="text-[11px] text-slate-400 truncate">{m.email}</div>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="p-3 text-slate-700">{ROLE_LABELS[m.role]}</td>
-                        {branches.length > 1 && (
-                          <td className="p-3 hidden md:table-cell text-slate-600">{m.role === 'owner' || !m.branchId ? 'Toutes' : branchName(m.branchId)}</td>
-                        )}
-                        <td className="p-3 hidden md:table-cell text-slate-500">{formatDate(m.joinedAt || m.invitedAt)}</td>
-                        <td className="p-3">
-                          <Badge className={STATUS[m.status].cls}>{STATUS[m.status].label}</Badge>
-                        </td>
-                        <td className="p-3">
-                          <div className="flex justify-end gap-1">
-                            <button className={btn.icon} title="Autorisations" onClick={() => setPermFor(m)}>
-                              <KeyRound className="w-4 h-4" />
-                            </button>
-                            {can('staff', 'edit') && canManage(m) && (
-                              <>
-                                <button
-                                  className={btn.icon}
-                                  title="Modifier"
-                                  onClick={() => {
-                                    setEditing(m);
-                                    setFormOpen(true);
-                                  }}
-                                >
-                                  <Pencil className="w-4 h-4" />
-                                </button>
-                                {m.status === 'invited' ? (
-                                  <button className={btn.icon} title="Simuler l’acceptation de l’invitation" onClick={() => updateMember(m.id, { status: 'active' })}>
-                                    <MailCheck className="w-4 h-4" />
-                                  </button>
-                                ) : (
-                                  m.id !== currentMember?.id && (
-                                    <button
-                                      className={btn.icon}
-                                      title={m.status === 'active' ? 'Désactiver' : 'Activer'}
-                                      onClick={() => updateMember(m.id, { status: m.status === 'active' ? 'inactive' : 'active' })}
-                                    >
-                                      <Power className={`w-4 h-4 ${m.status === 'active' ? '' : 'text-emerald-600'}`} />
-                                    </button>
-                                  )
-                                )}
-                              </>
-                            )}
-                            {can('staff', 'delete') && canManage(m) && m.id !== currentMember?.id && (
-                              <button className={btn.icon} title="Retirer de l’agence" onClick={() => setRemoving(m)}>
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            )}
-                          </div>
-                        </td>
+              <>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs text-left">
+                    <thead className="bg-slate-50 text-slate-500">
+                      <tr>
+                        <th className="p-3 font-semibold">Employé</th>
+                        <th className="p-3 font-semibold">Rôle</th>
+                        {branches.length > 1 && <th className="p-3 font-semibold hidden md:table-cell">Succursale</th>}
+                        <th className="p-3 font-semibold hidden md:table-cell">Depuis</th>
+                        <th className="p-3 font-semibold">Statut</th>
+                        <th className="p-3 font-semibold text-right">Actions</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {membersPager.items.map((m) => (
+                        <tr key={m.id} className="hover:bg-slate-50">
+                          <td className="p-3">
+                            <div className="flex items-center gap-3">
+                              <div className="w-8 h-8 rounded-full bg-[#123B70] text-white flex items-center justify-center font-bold shrink-0">
+                                {m.fullName.charAt(0).toUpperCase()}
+                              </div>
+                              <div className="min-w-0">
+                                <div className="font-semibold text-slate-900">
+                                  {m.fullName}
+                                  {m.id === currentMember?.id && <span className="ml-1 text-[10px] text-slate-400">(vous)</span>}
+                                </div>
+                                <div className="text-[11px] text-slate-400 truncate">{m.email}</div>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="p-3 text-slate-700">{ROLE_LABELS[m.role]}</td>
+                          {branches.length > 1 && (
+                            <td className="p-3 hidden md:table-cell text-slate-600">{m.role === 'owner' || !m.branchId ? 'Toutes' : branchName(m.branchId)}</td>
+                          )}
+                          <td className="p-3 hidden md:table-cell text-slate-500">{formatDate(m.joinedAt || m.invitedAt)}</td>
+                          <td className="p-3">
+                            <Badge className={STATUS[m.status].cls}>{STATUS[m.status].label}</Badge>
+                          </td>
+                          <td className="p-3">
+                            <div className="flex justify-end gap-1">
+                              <button className={btn.icon} title="Autorisations" onClick={() => setPermFor(m)}>
+                                <KeyRound className="w-4 h-4" />
+                              </button>
+                              {can('staff', 'edit') && canManage(m) && (
+                                <>
+                                  <button
+                                    className={btn.icon}
+                                    title="Modifier"
+                                    onClick={() => {
+                                      setEditing(m);
+                                      setFormOpen(true);
+                                    }}
+                                  >
+                                    <Pencil className="w-4 h-4" />
+                                  </button>
+                                  {m.status === 'invited' ? (
+                                    <button className={btn.icon} title="Simuler l’acceptation de l’invitation" onClick={() => updateMember(m.id, { status: 'active' })}>
+                                      <MailCheck className="w-4 h-4" />
+                                    </button>
+                                  ) : (
+                                    m.id !== currentMember?.id && (
+                                      <button
+                                        className={btn.icon}
+                                        title={m.status === 'active' ? 'Désactiver' : 'Activer'}
+                                        onClick={() => updateMember(m.id, { status: m.status === 'active' ? 'inactive' : 'active' })}
+                                      >
+                                        <Power className={`w-4 h-4 ${m.status === 'active' ? '' : 'text-emerald-600'}`} />
+                                      </button>
+                                    )
+                                  )}
+                                </>
+                              )}
+                              {can('staff', 'delete') && canManage(m) && m.id !== currentMember?.id && (
+                                <button className={btn.icon} title="Retirer de l’agence" onClick={() => setRemoving(m)}>
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <Pagination pager={membersPager} />
+              </>
             )}
           </div>
 
@@ -367,17 +375,20 @@ export const StaffPage: React.FC = () => {
           {history.length === 0 ? (
             <EmptyState icon={History} title="Aucune action enregistrée" />
           ) : (
-            <ol className="divide-y divide-slate-100">
-              {history.map((a) => (
-                <li key={a.id} className="py-2.5 flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-4 text-xs">
-                  <span className="text-[11px] text-slate-400 sm:w-36 shrink-0">{formatDateTime(a.createdAt)}</span>
-                  <span className="text-slate-700">
-                    <span className="font-semibold text-slate-900">{a.actorName}</span> {a.description}
-                  </span>
-                  <Badge className="bg-slate-100 text-slate-600 sm:ml-auto self-start sm:self-auto">{MODULES.find((m) => m.key === a.module)?.label}</Badge>
-                </li>
-              ))}
-            </ol>
+            <>
+              <ol className="divide-y divide-slate-100">
+                {historyPager.items.map((a) => (
+                  <li key={a.id} className="py-2.5 flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-4 text-xs">
+                    <span className="text-[11px] text-slate-400 sm:w-36 shrink-0">{formatDateTime(a.createdAt)}</span>
+                    <span className="text-slate-700">
+                      <span className="font-semibold text-slate-900">{a.actorName}</span> {a.description}
+                    </span>
+                    <Badge className="bg-slate-100 text-slate-600 sm:ml-auto self-start sm:self-auto">{MODULES.find((m) => m.key === a.module)?.label}</Badge>
+                  </li>
+                ))}
+              </ol>
+              <Pagination pager={historyPager} />
+            </>
           )}
           <p className="mt-4 text-[11px] text-slate-400">
             Journal enregistré localement pour la démonstration. En production, il sera écrit côté serveur et non modifiable.

@@ -1,7 +1,7 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Lock, X } from 'lucide-react';
-import { PaymentMethod } from './types';
-import { PAYMENT_METHOD_LABELS, PAYMENT_METHOD_OPTIONS } from './utils';
+import { Currency, PaymentMethod } from './types';
+import { CURRENCY_LABELS, PAYMENT_METHOD_LABELS, PAYMENT_METHOD_OPTIONS } from './utils';
 
 // ---------- Styles partagés ----------
 
@@ -471,3 +471,73 @@ export const PaymentMethodPicker: React.FC<{ value: PaymentMethod | undefined; o
     </div>
   );
 };
+
+// ---------- Pagination ----------
+
+export const PAGE_SIZE = 5;
+
+/** Découpe une liste en pages ; revient à la première page quand la liste change de taille */
+export const usePagination = <T,>(items: T[], pageSize = PAGE_SIZE) => {
+  const [page, setPage] = useState(1);
+  const pageCount = Math.max(1, Math.ceil(items.length / pageSize));
+  useEffect(() => {
+    setPage(1);
+  }, [items.length]);
+  const current = Math.min(page, pageCount);
+  return {
+    page: current,
+    pageCount,
+    pageSize,
+    total: items.length,
+    items: items.slice((current - 1) * pageSize, current * pageSize),
+    setPage,
+  };
+};
+
+export const Pagination: React.FC<{ pager: ReturnType<typeof usePagination<unknown>>; className?: string }> = ({ pager, className = '' }) => {
+  const { page, pageCount, pageSize, total, setPage } = pager;
+  if (total <= pageSize) return null;
+  const from = (page - 1) * pageSize + 1;
+  const to = Math.min(total, page * pageSize);
+  // Pages affichées : première, dernière et voisines de la page courante
+  const pages = Array.from({ length: pageCount }, (_, i) => i + 1).filter((p) => p === 1 || p === pageCount || Math.abs(p - page) <= 1);
+  const cell = 'min-w-[28px] h-7 px-2 rounded-md text-[11px] font-semibold transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed';
+  return (
+    <div className={`flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 border-t border-slate-100 text-[11px] text-slate-500 ${className}`}>
+      <span>
+        {from}–{to} sur {total}
+      </span>
+      <nav className="flex items-center gap-1" aria-label="Pagination">
+        <button className={`${cell} border border-slate-200 bg-white hover:bg-slate-50`} disabled={page === 1} onClick={() => setPage(page - 1)} aria-label="Page précédente">
+          ‹
+        </button>
+        {pages.map((p, i) => (
+          <React.Fragment key={p}>
+            {i > 0 && p - pages[i - 1] > 1 && <span className="px-0.5">…</span>}
+            <button
+              className={`${cell} ${p === page ? 'bg-[#123B70] text-white' : 'border border-slate-200 bg-white hover:bg-slate-50 text-slate-700'}`}
+              onClick={() => setPage(p)}
+              aria-current={p === page ? 'page' : undefined}
+            >
+              {p}
+            </button>
+          </React.Fragment>
+        ))}
+        <button className={`${cell} border border-slate-200 bg-white hover:bg-slate-50`} disabled={page === pageCount} onClick={() => setPage(page + 1)} aria-label="Page suivante">
+          ›
+        </button>
+      </nav>
+    </div>
+  );
+};
+
+/** Choix de la devise (USD, CDF, CNY) */
+export const CurrencySelect: React.FC<{ value: Currency; onChange: (c: Currency) => void; className?: string }> = ({ value, onChange, className = '' }) => (
+  <select className={`${inputClass} ${className}`} value={value} onChange={(e) => onChange(e.target.value as Currency)} aria-label="Devise">
+    {(Object.keys(CURRENCY_LABELS) as Currency[]).map((c) => (
+      <option key={c} value={c}>
+        {CURRENCY_LABELS[c]}
+      </option>
+    ))}
+  </select>
+);

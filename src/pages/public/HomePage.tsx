@@ -17,8 +17,22 @@ import {
   MapPin,
   Clock,
   Layers,
+  Phone,
 } from 'lucide-react';
 import { CATEGORIES, GENERATED_IMAGES } from '../../data/referenceData';
+import { whatsappUrl } from '../../agency/utils';
+import { AgencyLogo } from '../../components/common/AgencyImages';
+
+/** Contacts officiels d'ASEP MARKET */
+const ASEP_WHATSAPP = '+8618302038449';
+const ASEP_PHONE_RDC = '0823263196';
+const WHATSAPP_MESSAGE = 'Bonjour ASEP MARKET, je souhaite avoir des informations.';
+
+const WhatsAppIcon: React.FC<{ className?: string }> = ({ className = 'w-5 h-5' }) => (
+  <svg viewBox="0 0 24 24" className={className} fill="currentColor" aria-hidden="true">
+    <path d="M17.47 14.38c-.3-.15-1.75-.86-2.02-.96-.27-.1-.47-.15-.67.15-.2.3-.77.96-.94 1.16-.17.2-.35.22-.64.07-.3-.15-1.26-.46-2.4-1.48-.88-.79-1.48-1.76-1.65-2.06-.17-.3-.02-.46.13-.6.13-.14.3-.35.45-.52.15-.17.2-.3.3-.5.1-.2.05-.37-.02-.52-.08-.15-.67-1.61-.92-2.2-.24-.58-.49-.5-.67-.51h-.57c-.2 0-.52.07-.79.37-.27.3-1.04 1.02-1.04 2.48s1.07 2.88 1.21 3.08c.15.2 2.1 3.2 5.08 4.49.71.31 1.26.49 1.69.63.71.23 1.36.2 1.87.12.57-.09 1.75-.72 2-1.41.25-.69.25-1.29.17-1.41-.07-.12-.27-.2-.57-.35zM12.04 21.8h-.01a9.87 9.87 0 0 1-5.03-1.38l-.36-.21-3.74.98 1-3.65-.24-.37a9.86 9.86 0 0 1-1.51-5.26c0-5.45 4.44-9.88 9.9-9.88a9.83 9.83 0 0 1 7 2.9 9.82 9.82 0 0 1 2.89 6.99c0 5.45-4.44 9.88-9.9 9.88zm8.42-18.3A11.8 11.8 0 0 0 12.04 0C5.48 0 .13 5.34.13 11.9c0 2.1.55 4.14 1.59 5.95L.03 24l6.3-1.65a11.88 11.88 0 0 0 5.7 1.45h.01c6.56 0 11.9-5.34 11.9-11.9 0-3.18-1.24-6.17-3.48-8.4z" />
+  </svg>
+);
 
 export const HomePage: React.FC = () => {
   const navigate = useNavigate();
@@ -67,7 +81,7 @@ export const HomePage: React.FC = () => {
             </p>
 
             {/* Quick Hero Actions */}
-            <div className="flex flex-col sm:flex-row sm:items-center gap-2.5 sm:gap-3 pt-2">
+            <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2.5 sm:gap-3 pt-2">
               <Link
                 to="/catalog"
                 className="px-5 sm:px-6 py-3 bg-[#FF8A00] hover:bg-[#e57c00] text-white font-bold text-xs sm:text-sm rounded-xl shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 text-center cursor-pointer"
@@ -81,6 +95,15 @@ export const HomePage: React.FC = () => {
               >
                 <span>{t.seeAgencies}</span>
               </Link>
+              <a
+                href={whatsappUrl(ASEP_WHATSAPP, WHATSAPP_MESSAGE)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-5 sm:px-6 py-3 bg-[#25D366] hover:bg-[#1ebe5b] text-white font-bold text-xs sm:text-sm rounded-xl shadow-md transition-all flex items-center justify-center gap-2 text-center"
+              >
+                <WhatsAppIcon className="w-5 h-5" />
+                <span>WhatsApp ASEP</span>
+              </a>
               <Link
                 to="/how-it-works"
                 className="px-4 py-2 sm:py-3 text-slate-300 hover:text-white text-xs sm:text-sm font-medium transition-colors text-center"
@@ -149,6 +172,58 @@ export const HomePage: React.FC = () => {
                 <span>{t.freeAssistance}</span>
               </div>
             </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Fondateurs et contacts d'ASEP MARKET */}
+      <section className="max-w-7xl mx-auto px-4 sm:px-6">
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-5 sm:p-6 grid lg:grid-cols-[1fr_auto] gap-5 lg:items-center">
+          <div>
+            <h2 className="text-xs font-bold uppercase tracking-wider text-[#FF8A00]">L’équipe ASEP MARKET</h2>
+            <div className="mt-3 grid sm:grid-cols-2 gap-3">
+              {[
+                { role: 'Fondateur', name: 'Shadrack Muanza' },
+                { role: 'Cofondateur', name: 'Daniel Lola' },
+              ].map((p) => (
+                <div key={p.name} className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 border border-slate-100">
+                  <div className="w-11 h-11 rounded-full bg-[#123B70] text-white flex items-center justify-center font-bold text-sm shrink-0">
+                    {p.name
+                      .split(' ')
+                      .map((w) => w[0])
+                      .join('')}
+                  </div>
+                  <div>
+                    <div className="text-sm font-bold text-slate-900">{p.name}</div>
+                    <div className="text-xs text-slate-500">{p.role}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="flex flex-col sm:flex-row lg:flex-col gap-2 lg:min-w-[260px]">
+            <a
+              href={whatsappUrl(ASEP_WHATSAPP, WHATSAPP_MESSAGE)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex-1 flex items-center gap-3 px-4 py-3 rounded-xl bg-[#25D366] hover:bg-[#1ebe5b] text-white transition-colors"
+            >
+              <WhatsAppIcon className="w-6 h-6 shrink-0" />
+              <span>
+                <span className="block text-[11px] opacity-90">WhatsApp (Chine)</span>
+                <span className="block text-sm font-bold tracking-wide">+86 183 0203 8449</span>
+              </span>
+            </a>
+            <a
+              href={`tel:+243${ASEP_PHONE_RDC.slice(1)}`}
+              className="flex-1 flex items-center gap-3 px-4 py-3 rounded-xl bg-[#123B70] hover:bg-[#0c274c] text-white transition-colors"
+            >
+              <Phone className="w-5 h-5 shrink-0 text-[#FF8A00]" />
+              <span>
+                <span className="block text-[11px] opacity-90">Téléphone (RDC)</span>
+                <span className="block text-sm font-bold tracking-wide">082 326 3196</span>
+              </span>
+            </a>
           </div>
         </div>
       </section>
@@ -304,11 +379,7 @@ export const HomePage: React.FC = () => {
               >
                 <div>
                   <div className="flex items-start gap-3 mb-3">
-                    <img
-                      src={agency.logo}
-                      alt={agency.name}
-                      className="w-12 h-12 rounded-lg object-cover border border-slate-200 shrink-0"
-                    />
+                    <AgencyLogo src={agency.logo} name={agency.name} className="w-12 h-12 rounded-lg object-cover border border-slate-200 shrink-0" />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-1.5">
                         <h3 className="font-bold text-sm text-slate-900 truncate">{agency.name}</h3>

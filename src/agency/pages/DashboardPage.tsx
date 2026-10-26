@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { Clock, Package, PackageCheck, Receipt, ShoppingCart, Truck, UserCog, Users, Wallet } from 'lucide-react';
+import { Clock, ImagePlus, Package, PackageCheck, Receipt, ShoppingCart, Truck, UserCog, Users, Wallet } from 'lucide-react';
 import { useWorkspace } from '../AgencyWorkspaceContext';
 import { useAgencyMetrics } from '../metrics';
 import { MODULES } from '../permissions';
@@ -23,6 +23,20 @@ export const DashboardPage: React.FC = () => {
         title={`Bonjour ${currentMember?.fullName.split(' ')[0] || ''}`}
         subtitle={`Activité de ${activeAgency?.name} — uniquement les données de cette agence.`}
       />
+
+      {/* Sans logo ni couverture, l'agence apparaît sans image sur la plateforme */}
+      {activeAgency && (!activeAgency.logo || !activeAgency.banner) && can('settings', 'edit') && (
+        <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900 flex flex-col sm:flex-row sm:items-center gap-2">
+          <ImagePlus className="w-5 h-5 shrink-0 hidden sm:block" />
+          <span className="flex-1">
+            <strong>Votre agence n’a pas encore {!activeAgency.logo && !activeAgency.banner ? 'de logo ni de photo de couverture' : !activeAgency.logo ? 'de logo' : 'de photo de couverture'}.</strong>{' '}
+            Ajoutez-les pour être bien visible des acheteurs dans l’annuaire et sur vos articles.
+          </span>
+          <Link to="/agency/settings" className="font-semibold underline whitespace-nowrap">
+            Ajouter mes images
+          </Link>
+        </div>
+      )}
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         <StatCard label="Clients" value={customers.length} icon={Users} hint={`${customers.filter((c) => c.status === 'vip').length} VIP`} />

@@ -5,7 +5,7 @@ import { errorMessage } from '../../lib/supabase';
 import { useWorkspace } from '../AgencyWorkspaceContext';
 import { listPartnerShipments, PartnerShipment, partnerUpdateStatus } from '../services/partnerService';
 import { ShipmentStatus } from '../types';
-import { Badge, btn, EmptyState, Field, inputClass, Modal } from '../ui';
+import { Badge, btn, EmptyState, Field, inputClass, Modal, Pagination, usePagination } from '../ui';
 import {
   formatDateTime,
   formatNumber,
@@ -76,6 +76,8 @@ export const PartnerParcels: React.FC = () => {
     }
   };
 
+  const pager = usePagination(rows);
+
   return (
     <>
       <div className="flex items-center justify-between gap-2">
@@ -91,67 +93,70 @@ export const PartnerParcels: React.FC = () => {
         {rows.length === 0 ? (
           <EmptyState icon={Handshake} title="Aucun colis reçu de partenaires" text="Quand une agence partenaire vous confie un colis, il apparaît ici." />
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs text-left">
-              <thead className="bg-slate-50 text-slate-500">
-                <tr>
-                  <th className="p-3 font-semibold">Colis</th>
-                  <th className="p-3 font-semibold hidden md:table-cell">Confié par</th>
-                  <th className="p-3 font-semibold hidden lg:table-cell">Trajet</th>
-                  <th className="p-3 font-semibold">Statut</th>
-                  <th className="p-3 font-semibold text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {rows.map((p) => (
-                  <tr key={p.id} className="hover:bg-slate-50">
-                    <td className="p-3">
-                      <div className="font-mono font-semibold text-slate-900">{p.trackingRef}</div>
-                      <div className="text-[11px] text-slate-500 truncate max-w-[220px]">{p.description}</div>
-                      <div className="text-[11px] text-slate-400">Client : {p.customerName}</div>
-                    </td>
-                    <td className="p-3 hidden md:table-cell">
-                      <div className="text-slate-800">{p.fromAgencyName}</div>
-                      <div className="text-[11px] text-slate-400">{p.fromAgencyPhone}</div>
-                    </td>
-                    <td className="p-3 hidden lg:table-cell text-slate-600">
-                      {p.originCity} → {p.destinationCity}
-                      <div className="text-[11px] text-slate-400">
-                        {SHIPMENT_MODE_LABELS[p.mode]} · {formatNumber(p.weightKg, 1)} kg · {formatNumber(p.volumeCbm, 3)} CBM · {p.packages || 1} carton(s)
-                      </div>
-                    </td>
-                    <td className="p-3">
-                      <Badge className={SHIPMENT_STATUS_STYLES[p.status]}>{SHIPMENT_STATUS_LABELS[p.status]}</Badge>
-                      <div className="text-[10px] text-slate-400 mt-0.5">{formatDateTime(p.updatedAt)}</div>
-                    </td>
-                    <td className="p-3">
-                      <div className="flex justify-end gap-1 flex-wrap">
-                        {can('freight', 'edit') && (
-                          <button className={btn.primary} onClick={() => openUpdate(p)}>
-                            Mettre à jour
-                          </button>
-                        )}
-                        <button className={btn.icon} title="Copier le lien de suivi du client" onClick={() => copyLink(p)}>
-                          <Copy className="w-4 h-4" />
-                        </button>
-                        {p.fromAgencyPhone && (
-                          <a
-                            className={btn.icon}
-                            title={`Écrire à ${p.fromAgencyName} sur WhatsApp`}
-                            href={whatsappUrl(p.fromAgencyPhone, `Bonjour ${p.fromAgencyName}, c’est ${activeAgency?.name || 'votre partenaire'} au sujet du colis ${p.trackingRef}.`)}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                          >
-                            <MessageCircle className="w-4 h-4 text-[#25D366]" />
-                          </a>
-                        )}
-                      </div>
-                    </td>
+          <>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs text-left">
+                <thead className="bg-slate-50 text-slate-500">
+                  <tr>
+                    <th className="p-3 font-semibold">Colis</th>
+                    <th className="p-3 font-semibold hidden md:table-cell">Confié par</th>
+                    <th className="p-3 font-semibold hidden lg:table-cell">Trajet</th>
+                    <th className="p-3 font-semibold">Statut</th>
+                    <th className="p-3 font-semibold text-right">Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {pager.items.map((p) => (
+                    <tr key={p.id} className="hover:bg-slate-50">
+                      <td className="p-3">
+                        <div className="font-mono font-semibold text-slate-900">{p.trackingRef}</div>
+                        <div className="text-[11px] text-slate-500 truncate max-w-[220px]">{p.description}</div>
+                        <div className="text-[11px] text-slate-400">Client : {p.customerName}</div>
+                      </td>
+                      <td className="p-3 hidden md:table-cell">
+                        <div className="text-slate-800">{p.fromAgencyName}</div>
+                        <div className="text-[11px] text-slate-400">{p.fromAgencyPhone}</div>
+                      </td>
+                      <td className="p-3 hidden lg:table-cell text-slate-600">
+                        {p.originCity} → {p.destinationCity}
+                        <div className="text-[11px] text-slate-400">
+                          {SHIPMENT_MODE_LABELS[p.mode]} · {formatNumber(p.weightKg, 1)} kg · {formatNumber(p.volumeCbm, 3)} CBM · {p.packages || 1} carton(s)
+                        </div>
+                      </td>
+                      <td className="p-3">
+                        <Badge className={SHIPMENT_STATUS_STYLES[p.status]}>{SHIPMENT_STATUS_LABELS[p.status]}</Badge>
+                        <div className="text-[10px] text-slate-400 mt-0.5">{formatDateTime(p.updatedAt)}</div>
+                      </td>
+                      <td className="p-3">
+                        <div className="flex justify-end gap-1 flex-wrap">
+                          {can('freight', 'edit') && (
+                            <button className={btn.primary} onClick={() => openUpdate(p)}>
+                              Mettre à jour
+                            </button>
+                          )}
+                          <button className={btn.icon} title="Copier le lien de suivi du client" onClick={() => copyLink(p)}>
+                            <Copy className="w-4 h-4" />
+                          </button>
+                          {p.fromAgencyPhone && (
+                            <a
+                              className={btn.icon}
+                              title={`Écrire à ${p.fromAgencyName} sur WhatsApp`}
+                              href={whatsappUrl(p.fromAgencyPhone, `Bonjour ${p.fromAgencyName}, c’est ${activeAgency?.name || 'votre partenaire'} au sujet du colis ${p.trackingRef}.`)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              <MessageCircle className="w-4 h-4 text-[#25D366]" />
+                            </a>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <Pagination pager={pager} />
+          </>
         )}
       </div>
 

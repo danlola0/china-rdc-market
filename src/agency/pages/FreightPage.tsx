@@ -3,12 +3,13 @@ import { NumberInput } from '../../components/common/NumberInput';
 import { VolumeFields } from './VolumeFields';
 import { BranchSelect } from './BranchSelect';
 import { useAcceptedPartners } from './PartnersPage';
+import { EditParcel } from './ParcelsPage';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Download, Plane, Plus, Search, Ship, Trash2, Truck, Upload, X } from 'lucide-react';
+import { ArrowLeft, Download, Pencil, Plane, Plus, Search, Ship, Trash2, Truck, Upload, X } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { ShipmentInput, useWorkspace } from '../AgencyWorkspaceContext';
-import { AgencyShipment, PaymentMethod, ShipmentMode, ShipmentStatus } from '../types';
-import { Badge, btn, Card, ConfirmDialog, EmptyState, Field, inputClass, Modal, PageHeader, PaymentMethodPicker, StatCard } from '../ui';
+import { AgencyShipment, Currency, PaymentMethod, ShipmentMode, ShipmentStatus } from '../types';
+import { Badge, btn, Card, ConfirmDialog, EmptyState, Field, inputClass, Modal, PageHeader, PaymentMethodPicker, StatCard, Pagination, usePagination, CurrencySelect } from '../ui';
 import {
   CHINA_DEPARTURE_CITIES,
   compressImage,
@@ -26,9 +27,10 @@ import {
   SHIPMENT_STATUS_ORDER,
   SHIPMENT_STATUS_STYLES,
   todayISO,
+  paymentUSD,
 } from '../utils';
 
-const paidOf = (s: AgencyShipment) => s.payments.reduce((sum, p) => sum + p.amount, 0);
+const paidOf = (s: AgencyShipment) => s.payments.reduce((sum, p) => sum + paymentUSD(p), 0);
 
 const ModeIcon: React.FC<{ mode: ShipmentMode }> = ({ mode }) =>
   mode === 'air' ? <Plane className="w-3.5 h-3.5" /> : <Ship className="w-3.5 h-3.5" />;
@@ -36,7 +38,7 @@ const ModeIcon: React.FC<{ mode: ShipmentMode }> = ({ mode }) =>
 // ---------- Formulaire d'enregistrement ----------
 
 const ShipmentForm: React.FC<{ open: boolean; onClose: () => void }> = ({ open, onClose }) => {
-  const { customers, settings, shipments, activeAgency, createShipment, defaultBranchId, branches } = useWorkspace();
+  const { customers, settings, shipments, activeAgency, createShipment, defaultBranchId, branches, can } = useWorkspace();
   const partners = useAcceptedPartners();
   const { addToast } = useApp();
   const navigate = useNavigate();
@@ -65,8 +67,18 @@ const ShipmentForm: React.FC<{ open: boolean; onClose: () => void }> = ({ open, 
   });
 
   const [form, setForm] = useState<ShipmentInput>(initial);
+  // Client : existant, ou créé directement ici (nom + WhatsApp suffisent)
+  const [clientMode, setClientMode] = useState<'existing' | 'new' | 'none'>('existing');
+  const [newClient, setNewClient] = useState({ name: '', phone: '', city: '' });
+  // Acompte versé à l'enregistrement
+  const [deposit, setDeposit] = useState({ amount: '', currency: 'USD' as Currency, method: 'cash' as PaymentMethod });
   React.useEffect(() => {
-    if (open) setForm(initial());
+    if (open) {
+      setForm(initial());
+      setClientMode(customers.length === 0 ? 'new' : 'existing');
+      setNewClient({ name: '', phone: '', city: '' });
+      setDeposit({ amount: '', currency: 'USD', method: 'cash' });
+    }
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const estimate = computeFreightCost(form.rateType, form.rate, form.weightKg, form.volumeCbm);
@@ -93,11 +105,17 @@ const ShipmentForm: React.FC<{ open: boolean; onClose: () => void }> = ({ open, 
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.customerId) {
-      addToast('Ajoutez d’abord un client dans « Gestion clients ».', 'error');
-      return;
-    }
-    const created = await createShipment({ ...form, estimatedCost: estimate });
+    // Tout est facultatif : sans client choisi, le colis est enregistré « sans client »
+    const withNewClient = clientMode === 'new' && !!(newClient.name.trim() || newClient.phone.trim());
+    const noClient = clientMode === 'none' || (clientMode === 'existing' && !form.customerId) || (clientMode === 'new' && !withNewClient);
+    const amount = parseFloat(deposit.amount) || 0;
+    const created = await createShipment(
+      { ...form, ...(noClient ? { customerId: '', customerName: 'Client non renseigné' } : {}), estimatedCost: estimate },
+      {
+        newCustomer: withNewClient ? { ...newClient, name: newClient.name.trim() || newClient.phone.trim() } : undefined,
+        initialPayment: amount > 0 ? { amount, currency: deposit.currency, method: deposit.method, date: todayISO(), note: 'Acompte à l’enregistrement' } : undefined,
+      }
+    );
     if (created) {
       onClose();
       navigate(`/agency/freight/${created.id}`);
@@ -127,9 +145,45 @@ const ShipmentForm: React.FC<{ open: boolean; onClose: () => void }> = ({ open, 
           <span className="font-mono font-bold text-slate-900">{form.trackingRef}</span>
         </div>
 
-        <Field label="Client" required className="sm:col-span-2">
-          {customers.length === 0 ? (
-            <p className="text-rose-600">Aucun client : créez d’abord une fiche client.</p>
+        <Field label="Client" className="sm:col-span-2">
+          <div className="flex gap-1 mb-2">
+            {customers.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setClientMode('existing')}
+                className={`px-3 py-1 rounded-md text-[11px] font-semibold cursor-pointer ${clientMode === 'existing' ? 'bg-[#123B70] text-white' : 'bg-slate-100 text-slate-600'}`}
+              >
+                Client existant
+              </button>
+            )}
+            {can('customers', 'create') && (
+              <button
+                type="button"
+                onClick={() => setClientMode('new')}
+                className={`px-3 py-1 rounded-md text-[11px] font-semibold cursor-pointer ${clientMode === 'new' ? 'bg-[#123B70] text-white' : 'bg-slate-100 text-slate-600'}`}
+              >
+                + Nouveau client
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setClientMode('none')}
+              className={`px-3 py-1 rounded-md text-[11px] font-semibold cursor-pointer ${clientMode === 'none' ? 'bg-[#123B70] text-white' : 'bg-slate-100 text-slate-600'}`}
+            >
+              Sans client
+            </button>
+          </div>
+          {clientMode === 'none' ? (
+            <p className="text-[11px] text-slate-500">Le colis sera enregistré sans client ; vous pourrez l’ajouter plus tard avec « Modifier ».</p>
+          ) : clientMode === 'new' ? (
+            <div className="grid sm:grid-cols-3 gap-2">
+              <input className={inputClass} placeholder="Nom du client" value={newClient.name} onChange={(e) => setNewClient({ ...newClient, name: e.target.value })} />
+              <input className={inputClass} placeholder="WhatsApp (+243…)" value={newClient.phone} onChange={(e) => setNewClient({ ...newClient, phone: e.target.value })} inputMode="tel" />
+              <input className={inputClass} placeholder="Ville" value={newClient.city} onChange={(e) => setNewClient({ ...newClient, city: e.target.value })} />
+              <p className="sm:col-span-3 text-[11px] text-slate-500">La fiche client est créée automatiquement ; vous pourrez la compléter plus tard.</p>
+            </div>
+          ) : customers.length === 0 ? (
+            <p className="text-rose-600">Aucun client enregistré.</p>
           ) : (
             <select
               className={inputClass}
@@ -148,8 +202,8 @@ const ShipmentForm: React.FC<{ open: boolean; onClose: () => void }> = ({ open, 
           )}
         </Field>
 
-        <Field label="Description du contenu" required className="sm:col-span-2">
-          <input className={inputClass} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} required />
+        <Field label="Description du contenu" className="sm:col-span-2">
+          <input className={inputClass} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Facultatif" />
         </Field>
 
         {branches.length > 1 && (
@@ -184,7 +238,7 @@ const ShipmentForm: React.FC<{ open: boolean; onClose: () => void }> = ({ open, 
           </Field>
         )}
 
-        <Field label="Transport" required className="sm:col-span-2">
+        <Field label="Transport" className="sm:col-span-2">
           <div className="grid grid-cols-2 gap-2">
             {(['sea', 'air'] as ShipmentMode[]).map((m) => (
               <button
@@ -202,34 +256,35 @@ const ShipmentForm: React.FC<{ open: boolean; onClose: () => void }> = ({ open, 
           </div>
         </Field>
 
-        <Field label="Ville de départ (Chine)" required>
+        <Field label="Ville de départ (Chine)">
           <select className={inputClass} value={form.originCity} onChange={(e) => setForm({ ...form, originCity: e.target.value })}>
             {CHINA_DEPARTURE_CITIES.map((c) => (
               <option key={c}>{c}</option>
             ))}
           </select>
         </Field>
-        <Field label="Destination (RDC)" required>
+        <Field label="Destination (RDC)">
           <select className={inputClass} value={form.destinationCity} onChange={(e) => setForm({ ...form, destinationCity: e.target.value })}>
             {DRC_DESTINATIONS.map((c) => (
               <option key={c}>{c}</option>
             ))}
           </select>
         </Field>
-        <Field label="Poids (kg)" required>
-          <NumberInput className={inputClass} value={form.weightKg} onChange={(v) => setForm({ ...form, weightKg: parseFloat(v) || 0 })} required placeholder="Ex. 120" />
-        </Field>
-        <VolumeFields
-          required
-          value={{ volumeCbm: form.volumeCbm, lengthCm: form.lengthCm, widthCm: form.widthCm, heightCm: form.heightCm, packages: form.packages }}
-          onChange={(v) => setForm({ ...form, ...v })}
-        />
-        <Field label="Tarification">
-          <select className={inputClass} value={form.rateType} onChange={(e) => setForm({ ...form, rateType: e.target.value as 'kg' | 'cbm' })}>
-            <option value="kg">Au kilogramme</option>
-            <option value="cbm">Au CBM</option>
-          </select>
-        </Field>
+        {form.mode === 'air' ? (
+          <>
+            <Field label="Poids (kg)">
+              <NumberInput className={inputClass} value={form.weightKg} onChange={(v) => setForm({ ...form, weightKg: parseFloat(v) || 0 })} placeholder="Ex. 120" />
+            </Field>
+            <Field label="Nombre de cartons">
+              <NumberInput decimals={false} className={inputClass} value={form.packages} onChange={(v) => setForm({ ...form, packages: Math.max(1, parseInt(v) || 1) })} placeholder="1" />
+            </Field>
+          </>
+        ) : (
+          <VolumeFields
+            value={{ volumeCbm: form.volumeCbm, lengthCm: form.lengthCm, widthCm: form.widthCm, heightCm: form.heightCm, packages: form.packages }}
+            onChange={(v) => setForm({ ...form, ...v })}
+          />
+        )}
         <Field label={`Tarif (USD / ${form.rateType === 'kg' ? 'kg' : 'CBM'})`}>
           <NumberInput className={inputClass} value={form.rate} onChange={(v) => setForm({ ...form, rate: parseFloat(v) || 0 })} />
         </Field>
@@ -237,6 +292,20 @@ const ShipmentForm: React.FC<{ open: boolean; onClose: () => void }> = ({ open, 
         <div className="sm:col-span-2 p-3 rounded-lg border border-blue-200 bg-blue-50 flex items-center justify-between">
           <span className="text-blue-900">Frais estimés</span>
           <span className="text-lg font-bold text-blue-900 tabular-nums">{formatMoney(estimate)}</span>
+        </div>
+
+        <Field label="Acompte payé" hint="Facultatif : montant déjà versé par le client">
+          <div className="flex gap-2">
+            <NumberInput className={inputClass} value={deposit.amount} onChange={(v) => setDeposit({ ...deposit, amount: v })} placeholder="Ex. 50" />
+            <select className={`${inputClass} w-24`} value={deposit.currency} onChange={(e) => setDeposit({ ...deposit, currency: e.target.value as Currency })} aria-label="Devise de l’acompte">
+              <option value="USD">USD</option>
+              <option value="CDF">CDF</option>
+              <option value="CNY">CNY</option>
+            </select>
+          </div>
+        </Field>
+        <div>
+          <PaymentMethodPicker value={deposit.method} onChange={(v: PaymentMethod) => setDeposit({ ...deposit, method: v })} />
         </div>
 
         <div className="sm:col-span-2">
@@ -277,7 +346,7 @@ const ShipmentDetail: React.FC<{ shipment: AgencyShipment }> = ({ shipment }) =>
   const [status, setStatus] = useState<ShipmentStatus>(shipment.status);
   const [note, setNote] = useState('');
   const [payOpen, setPayOpen] = useState(false);
-  const [payment, setPayment] = useState({ amount: '', date: todayISO(), method: 'bank' as PaymentMethod, note: '' });
+  const [payment, setPayment] = useState({ amount: '', currency: 'USD' as Currency, date: todayISO(), method: 'cash' as PaymentMethod, note: '' });
   const [confirm, setConfirm] = useState(false);
   const [photo, setPhoto] = useState<string | null>(null);
   React.useEffect(() => setStatus(shipment.status), [shipment.status]);
@@ -421,7 +490,7 @@ const ShipmentDetail: React.FC<{ shipment: AgencyShipment }> = ({ shipment }) =>
                     {p.note ? ` · ${p.note}` : ''}
                   </div>
                 </div>
-                <span className="font-semibold tabular-nums">{formatMoney(p.amount)}</span>
+                <span className="font-semibold tabular-nums">{formatMoney(p.amount, p.currency || 'USD')}</span>
               </li>
             ))}
           </ul>
@@ -490,11 +559,14 @@ const ShipmentDetail: React.FC<{ shipment: AgencyShipment }> = ({ shipment }) =>
             e.preventDefault();
             await addShipmentPayment(shipment.id, { ...payment, amount: parseFloat(payment.amount) || 0 });
             setPayOpen(false);
-            setPayment({ amount: '', date: todayISO(), method: 'bank', note: '' });
+            setPayment({ amount: '', currency: payment.currency, date: todayISO(), method: payment.method, note: '' });
           }}
         >
-          <Field label="Montant (USD)" required hint={remaining > 0 ? `Reste à payer : ${formatMoney(remaining)}` : undefined}>
+          <Field label="Montant" required hint={remaining > 0 ? `Reste à payer : ${formatMoney(remaining)}` : undefined}>
             <NumberInput className={inputClass} value={payment.amount} onChange={(v) => setPayment({ ...payment, amount: v })} required />
+          </Field>
+          <Field label="Devise">
+            <CurrencySelect value={payment.currency} onChange={(c) => setPayment({ ...payment, currency: c })} />
           </Field>
           <Field label="Date" required>
             <input type="date" className={inputClass} value={payment.date} max={todayISO()} onChange={(e) => setPayment({ ...payment, date: e.target.value })} required />
@@ -529,7 +601,9 @@ const ShipmentDetail: React.FC<{ shipment: AgencyShipment }> = ({ shipment }) =>
 
 export const FreightPage: React.FC = () => {
   const { shipmentId } = useParams();
-  const { shipments, can, logActivity } = useWorkspace();
+  const { shipments, can, logActivity, deleteShipment } = useWorkspace();
+  const [editing, setEditing] = useState<AgencyShipment | null>(null);
+  const [deleting, setDeleting] = useState<AgencyShipment | null>(null);
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState<'all' | ShipmentStatus>('all');
   const [mode, setMode] = useState<'all' | ShipmentMode>('all');
@@ -545,6 +619,9 @@ export const FreightPage: React.FC = () => {
       ),
     [shipments, query, status, mode]
   );
+
+  // Avant tout retour anticipé (règle des hooks React)
+  const pager = usePagination(filtered);
 
   if (shipmentId) {
     const shipment = shipments.find((s) => s.id === shipmentId);
@@ -565,6 +642,7 @@ export const FreightPage: React.FC = () => {
   };
 
   const count = (st: ShipmentStatus) => shipments.filter((s) => s.status === st).length;
+
 
   return (
     <>
@@ -619,55 +697,81 @@ export const FreightPage: React.FC = () => {
         {filtered.length === 0 ? (
           <EmptyState icon={Truck} title={shipments.length ? 'Aucun colis ne correspond' : 'Aucun colis enregistré'} />
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs text-left">
-              <thead className="bg-slate-50 text-slate-500">
-                <tr>
-                  <th className="p-3 font-semibold">Référence</th>
-                  <th className="p-3 font-semibold hidden md:table-cell">Client</th>
-                  <th className="p-3 font-semibold hidden lg:table-cell">Trajet</th>
-                  <th className="p-3 font-semibold hidden sm:table-cell text-right">Poids / Volume</th>
-                  <th className="p-3 font-semibold text-right">Frais</th>
-                  <th className="p-3 font-semibold">Statut</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {filtered.map((s) => {
-                  const due = s.estimatedCost - paidOf(s);
-                  return (
-                    <tr key={s.id} className="hover:bg-slate-50">
-                      <td className="p-3">
-                        <Link to={`/agency/freight/${s.id}`} className="font-mono font-semibold text-[#123B70] hover:underline">
-                          {s.trackingRef}
-                        </Link>
-                        <div className="text-[11px] text-slate-400 truncate max-w-[200px]">{s.description}</div>
-                      </td>
-                      <td className="p-3 hidden md:table-cell text-slate-700">{s.customerName}</td>
-                      <td className="p-3 hidden lg:table-cell text-slate-600">
-                        <span className="inline-flex items-center gap-1">
-                          <ModeIcon mode={s.mode} /> {s.originCity} → {s.destinationCity}
-                        </span>
-                      </td>
-                      <td className="p-3 hidden sm:table-cell text-right tabular-nums text-slate-600 whitespace-nowrap">
-                        {formatNumber(s.weightKg, 1)} kg · {formatNumber(s.volumeCbm, 2)} m³
-                      </td>
-                      <td className="p-3 text-right tabular-nums whitespace-nowrap">
-                        <div className="font-semibold text-slate-900">{formatMoney(s.estimatedCost)}</div>
-                        <div className={`text-[11px] ${due > 0.009 ? 'text-rose-600' : 'text-emerald-600'}`}>{due > 0.009 ? `Reste ${formatMoney(due)}` : 'Soldé'}</div>
-                      </td>
-                      <td className="p-3">
-                        <Badge className={SHIPMENT_STATUS_STYLES[s.status]}>{SHIPMENT_STATUS_LABELS[s.status]}</Badge>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          <>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs text-left">
+                <thead className="bg-slate-50 text-slate-500">
+                  <tr>
+                    <th className="p-3 font-semibold">Référence</th>
+                    <th className="p-3 font-semibold hidden md:table-cell">Client</th>
+                    <th className="p-3 font-semibold hidden lg:table-cell">Trajet</th>
+                    <th className="p-3 font-semibold hidden sm:table-cell text-right">Poids / Volume</th>
+                    <th className="p-3 font-semibold text-right">Frais</th>
+                    <th className="p-3 font-semibold">Statut</th>
+                    <th className="p-3 font-semibold text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {pager.items.map((s) => {
+                    const due = s.estimatedCost - paidOf(s);
+                    return (
+                      <tr key={s.id} className="hover:bg-slate-50">
+                        <td className="p-3">
+                          <Link to={`/agency/freight/${s.id}`} className="font-mono font-semibold text-[#123B70] hover:underline">
+                            {s.trackingRef}
+                          </Link>
+                          <div className="text-[11px] text-slate-400 truncate max-w-[200px]">{s.description}</div>
+                        </td>
+                        <td className="p-3 hidden md:table-cell text-slate-700">{s.customerName}</td>
+                        <td className="p-3 hidden lg:table-cell text-slate-600">
+                          <span className="inline-flex items-center gap-1">
+                            <ModeIcon mode={s.mode} /> {s.originCity} → {s.destinationCity}
+                          </span>
+                        </td>
+                        <td className="p-3 hidden sm:table-cell text-right tabular-nums text-slate-600 whitespace-nowrap">
+                          {formatNumber(s.weightKg, 1)} kg · {formatNumber(s.volumeCbm, 2)} m³
+                        </td>
+                        <td className="p-3 text-right tabular-nums whitespace-nowrap">
+                          <div className="font-semibold text-slate-900">{formatMoney(s.estimatedCost)}</div>
+                          <div className={`text-[11px] ${due > 0.009 ? 'text-rose-600' : 'text-emerald-600'}`}>{due > 0.009 ? `Reste ${formatMoney(due)}` : 'Soldé'}</div>
+                        </td>
+                        <td className="p-3">
+                          <Badge className={SHIPMENT_STATUS_STYLES[s.status]}>{SHIPMENT_STATUS_LABELS[s.status]}</Badge>
+                        </td>
+                        <td className="p-3">
+                          <div className="flex justify-end gap-1">
+                            {can('freight', 'edit') && (
+                              <button className={btn.secondary} onClick={() => setEditing(s)} title="Modifier le colis">
+                                <Pencil className="w-4 h-4" /> <span className="hidden xl:inline">Modifier</span>
+                              </button>
+                            )}
+                            {can('freight', 'delete') && (
+                              <button className={btn.secondary} onClick={() => setDeleting(s)} title="Supprimer le colis">
+                                <Trash2 className="w-4 h-4 text-rose-600" /> <span className="hidden xl:inline">Supprimer</span>
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <Pagination pager={pager} />
+          </>
         )}
       </div>
 
       <ShipmentForm open={formOpen} onClose={() => setFormOpen(false)} />
+      <EditParcel parcel={editing} onClose={() => setEditing(null)} />
+      <ConfirmDialog
+        open={!!deleting}
+        title="Supprimer le colis"
+        text={`Le colis ${deleting?.trackingRef} et son historique seront supprimés. Son lien de suivi ne fonctionnera plus.`}
+        onClose={() => setDeleting(null)}
+        onConfirm={() => deleting && deleteShipment(deleting.id)}
+      />
     </>
   );
 };

@@ -53,8 +53,8 @@ const BranchForm: React.FC<{ branch: Partial<AgencyBranch> | null; onClose: () =
             ))}
           </select>
         </Field>
-        <Field label="Ville" required>
-          <input className={inputClass} value={form.city || ''} onChange={set('city')} required placeholder="Ex. Kinshasa, Luanda…" />
+        <Field label="Ville">
+          <input className={inputClass} value={form.city || ''} onChange={set('city')} placeholder="Ex. Kinshasa, Luanda…" />
         </Field>
         <Field label="Téléphone / WhatsApp" hint="Affiché aux clients dont les colis sont livrés par cette succursale">
           <input className={inputClass} value={form.phone || ''} onChange={set('phone')} />

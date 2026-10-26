@@ -144,6 +144,10 @@ export interface Order {
 export interface ChatMessage {
   id: string;
   sender: 'buyer' | 'agency';
+  /** Auteur réel (pour « Supprimer pour tout le monde ») */
+  senderId?: string;
+  /** Message supprimé pour tout le monde */
+  deleted?: boolean;
   text: string;
   timestamp: string;
   attachment?: {
@@ -158,6 +162,9 @@ export interface ChatMessage {
 
 export interface Conversation {
   id: string;
+  /** Discussion effacée de ce côté à cette date (elle réapparaît avec les nouveaux messages) */
+  buyerClearedAt?: string | null;
+  agencyClearedAt?: string | null;
   agencyId: string;
   agencyName: string;
   agencyCity: string;

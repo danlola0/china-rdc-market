@@ -8,6 +8,8 @@ import { AgencySettings, Currency } from '../types';
 import { btn, Card, Field, inputClass, PageHeader } from '../ui';
 import { CHINA_DEPARTURE_CITIES, compressImage } from '../utils';
 import { VerificationPanel } from './VerificationPanel';
+import { isInlineImage, uploadProductImage } from '../../lib/productImages';
+import { AgencyLogo } from '../../components/common/AgencyImages';
 
 const Toggle: React.FC<{ label: string; checked: boolean; disabled?: boolean; onChange: (v: boolean) => void }> = ({ label, checked, disabled, onChange }) => (
   <label className="flex items-center justify-between gap-4 py-2 text-xs text-slate-700">
@@ -55,7 +57,20 @@ export const SettingsPage: React.FC = () => {
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
     if (readOnly) return;
-    await updateAgencyProfile({ ...profile, whatsapp: profile.phoneWeChat });
+    // Logo et couverture : envoyés comme images (adresse courte) plutôt qu'en texte dans la fiche
+    const branding: Partial<Agency> = {};
+    for (const key of ['logo', 'banner'] as const) {
+      const value = profile[key];
+      if (value && isInlineImage(value) && activeAgency) {
+        try {
+          branding[key] = await uploadProductImage(activeAgency.id, value);
+        } catch {
+          // Envoi impossible : l'image reste enregistrée telle quelle
+        }
+      }
+    }
+    await updateAgencyProfile({ ...profile, ...branding, whatsapp: profile.phoneWeChat });
+    setProfile((cur) => ({ ...cur, ...branding }));
     await saveSettings(prefs);
     await logActivity('settings', 'a mis à jour les paramètres de l’agence');
     addToast('Paramètres enregistrés pour cette agence.', 'success');
@@ -80,9 +95,15 @@ export const SettingsPage: React.FC = () => {
               className="h-28 rounded-xl bg-slate-100 bg-cover bg-center border border-slate-200 relative"
               style={profile.banner ? { backgroundImage: `url("${profile.banner}")` } : { background: prefs.primaryColor }}
             >
-              <img src={profile.logo} alt="" className="absolute -bottom-6 left-4 w-16 h-16 rounded-xl object-cover bg-white border-4 border-white shadow" />
+              <AgencyLogo src={profile.logo} name={profile.name || activeAgency.name} className="absolute -bottom-6 left-4 w-16 h-16 rounded-xl object-cover bg-white border-4 border-white shadow" />
             </div>
-            <div className="flex flex-wrap gap-2 pt-6">
+            {(!profile.logo || !profile.banner) && (
+              <p className="pt-6 text-[11px] text-amber-700">
+                Ajoutez {!profile.logo && !profile.banner ? 'votre logo et une photo de couverture' : !profile.logo ? 'votre logo' : 'une photo de couverture'} : ils s’affichent sur la
+                fiche de votre agence, vos articles et vos factures.
+              </p>
+            )}
+            <div className={`flex flex-wrap gap-2 ${!profile.logo || !profile.banner ? '' : 'pt-6'}`}>
               <label className={`${btn.secondary} cursor-pointer`}>
                 <Upload className="w-4 h-4" /> Logo
                 <input type="file" accept="image/*" className="hidden" onChange={upload('logo')} />

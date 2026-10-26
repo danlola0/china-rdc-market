@@ -11,6 +11,9 @@ import {
 export const FX_PER_USD: Record<Currency, number> = { USD: 1, CDF: 2850, CNY: 7.1 };
 
 export const toUSD = (amount: number, currency: Currency) => amount / FX_PER_USD[currency];
+/** Montant d'un paiement en USD (les anciens paiements sans devise sont en USD) */
+export const paymentUSD = (p: { amount: number; currency?: Currency }) => toUSD(p.amount, p.currency || 'USD');
+export const CURRENCY_LABELS: Record<Currency, string> = { USD: 'USD — Dollar américain', CDF: 'CDF — Franc congolais', CNY: 'CNY — Yuan chinois' };
 export const fromUSD = (amountUSD: number, currency: Currency) => amountUSD * FX_PER_USD[currency];
 
 export const formatMoney = (amount: number, currency: Currency = 'USD', compact = false) =>

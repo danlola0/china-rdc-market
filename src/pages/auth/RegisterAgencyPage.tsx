@@ -4,6 +4,7 @@ import { FileCheck2 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { CHINESE_CITIES } from '../../data/referenceData';
 import { AuthCard, AuthField, authInput, CheckEmail, SubmitButton } from './AuthCard';
+import { PasswordInput } from '../../components/common/PasswordInput';
 
 const STEPS = [
   'Créez votre compte agence (ci-dessous) et confirmez votre email.',
@@ -108,7 +109,7 @@ export const RegisterAgencyPage: React.FC = () => {
             <input type="email" autoComplete="email" className={authInput} value={form.email} onChange={set('email')} required />
           </AuthField>
           <AuthField label="Mot de passe *" hint="8 caractères minimum.">
-            <input type="password" autoComplete="new-password" minLength={8} className={authInput} value={form.password} onChange={set('password')} required />
+            <PasswordInput autoComplete="new-password" minLength={8} className={authInput} value={form.password} onChange={set('password')} required />
           </AuthField>
           <SubmitButton loading={loading}>Créer mon compte agence</SubmitButton>
         </form>

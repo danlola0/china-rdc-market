@@ -1,15 +1,16 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Copy, ExternalLink, MessageCircle, Package, Pencil, Search, Trash2 } from 'lucide-react';
+import { Copy, ExternalLink, MessageCircle, Package, Pencil, Search, Trash2, Wallet } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { NumberInput } from '../../components/common/NumberInput';
 import { VolumeFields } from './VolumeFields';
 import { BranchSelect } from './BranchSelect';
 import { useAcceptedPartners } from './PartnersPage';
 import { PartnerParcels } from './PartnerParcels';
+import { paidOf, ParcelPayments } from './ParcelPayments';
 import { useWorkspace } from '../AgencyWorkspaceContext';
 import { AgencyShipment, ShipmentMode, ShipmentStatus } from '../types';
-import { Badge, btn, ConfirmDialog, EmptyState, Field, inputClass, Modal, PageHeader, Tabs } from '../ui';
+import { Badge, btn, ConfirmDialog, EmptyState, Field, inputClass, Modal, PageHeader, Tabs, Pagination, usePagination } from '../ui';
 import {
   CHINA_DEPARTURE_CITIES,
   computeFreightCost,
@@ -17,6 +18,7 @@ import {
   formatDateTime,
   formatMoney,
   formatNumber,
+  PAYMENT_METHOD_LABELS,
   SHIPMENT_MODE_LABELS,
   SHIPMENT_STATUS_LABELS,
   SHIPMENT_STATUS_ORDER,
@@ -29,7 +31,7 @@ import {
 // ---------------------------------------------------------------------
 // Modifier un colis
 // ---------------------------------------------------------------------
-const EditParcel: React.FC<{ parcel: AgencyShipment | null; onClose: () => void }> = ({ parcel, onClose }) => {
+export const EditParcel: React.FC<{ parcel: AgencyShipment | null; onClose: () => void }> = ({ parcel, onClose }) => {
   const { customers, updateShipment, changeShipmentStatus, branchName } = useWorkspace();
   const partners = useAcceptedPartners();
   const [form, setForm] = useState({
@@ -86,7 +88,7 @@ const EditParcel: React.FC<{ parcel: AgencyShipment | null; onClose: () => void 
     // Seuls les champs modifiables sont envoyés (le jeton de suivi ne change jamais)
     const ok = await updateShipment(parcel.id, {
       customerId: form.customerId,
-      customerName: customer?.name || parcel.customerName,
+      customerName: form.customerId ? customer?.name || parcel.customerName : 'Client non renseigné',
       description: form.description,
       weightKg: form.weightKg,
       volumeCbm: form.volumeCbm,
@@ -127,9 +129,10 @@ const EditParcel: React.FC<{ parcel: AgencyShipment | null; onClose: () => void 
       }
     >
       <form id="edit-parcel-form" onSubmit={save} className="grid sm:grid-cols-2 gap-4">
-        <Field label="Client" required className="sm:col-span-2">
-          <select className={inputClass} value={form.customerId} onChange={(e) => setForm({ ...form, customerId: e.target.value })}>
-            {!customers.some((c) => c.id === form.customerId) && <option value={form.customerId}>{parcel.customerName}</option>}
+        <Field label="Client" className="sm:col-span-2">
+          <select className={inputClass} value={form.customerId || ''} onChange={(e) => setForm({ ...form, customerId: e.target.value })}>
+            <option value="">— Sans client —</option>
+            {form.customerId && !customers.some((c) => c.id === form.customerId) && <option value={form.customerId}>{parcel.customerName}</option>}
             {customers.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name} {c.company ? `— ${c.company}` : ''}
@@ -137,8 +140,8 @@ const EditParcel: React.FC<{ parcel: AgencyShipment | null; onClose: () => void 
             ))}
           </select>
         </Field>
-        <Field label="Description du contenu" required className="sm:col-span-2">
-          <input className={inputClass} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} required />
+        <Field label="Description du contenu" className="sm:col-span-2">
+          <input className={inputClass} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Facultatif" />
         </Field>
         <BranchSelect
           label={`Succursale qui reçoit et livre${parcel.originBranchId ? ` (expédié par ${branchName(parcel.originBranchId)})` : ''}`}
@@ -188,12 +191,6 @@ const EditParcel: React.FC<{ parcel: AgencyShipment | null; onClose: () => void 
             <option value="air">{SHIPMENT_MODE_LABELS.air}</option>
           </select>
         </Field>
-        <Field label="Tarification">
-          <select className={inputClass} value={form.rateType} onChange={(e) => setForm({ ...form, rateType: e.target.value as 'kg' | 'cbm' })}>
-            <option value="kg">Au kilogramme</option>
-            <option value="cbm">Au CBM</option>
-          </select>
-        </Field>
         <Field label="Ville de départ (Chine)">
           <select className={inputClass} value={form.originCity} onChange={(e) => setForm({ ...form, originCity: e.target.value })}>
             {!CHINA_DEPARTURE_CITIES.includes(form.originCity) && <option>{form.originCity}</option>}
@@ -210,13 +207,21 @@ const EditParcel: React.FC<{ parcel: AgencyShipment | null; onClose: () => void 
             ))}
           </select>
         </Field>
-        <Field label="Poids (kg)">
-          <NumberInput className={inputClass} value={form.weightKg} onChange={(v) => setForm({ ...form, weightKg: parseFloat(v) || 0 })} />
-        </Field>
-        <VolumeFields
-          value={{ volumeCbm: form.volumeCbm, lengthCm: form.lengthCm, widthCm: form.widthCm, heightCm: form.heightCm, packages: form.packages }}
-          onChange={(v) => setForm({ ...form, ...v, lengthCm: v.lengthCm ?? null, widthCm: v.widthCm ?? null, heightCm: v.heightCm ?? null, packages: v.packages || 1 })}
-        />
+        {form.mode === 'air' ? (
+          <>
+            <Field label="Poids (kg)">
+              <NumberInput className={inputClass} value={form.weightKg} onChange={(v) => setForm({ ...form, weightKg: parseFloat(v) || 0 })} placeholder="Ex. 120" />
+            </Field>
+            <Field label="Nombre de cartons">
+              <NumberInput decimals={false} className={inputClass} value={form.packages} onChange={(v) => setForm({ ...form, packages: Math.max(1, parseInt(v) || 1) })} placeholder="1" />
+            </Field>
+          </>
+        ) : (
+          <VolumeFields
+            value={{ volumeCbm: form.volumeCbm, lengthCm: form.lengthCm, widthCm: form.widthCm, heightCm: form.heightCm, packages: form.packages }}
+            onChange={(v) => setForm({ ...form, ...v, lengthCm: v.lengthCm ?? null, widthCm: v.widthCm ?? null, heightCm: v.heightCm ?? null, packages: v.packages || 1 })}
+          />
+        )}
         <Field label={`Tarif (USD / ${form.rateType === 'kg' ? 'kg' : 'CBM'})`}>
           <NumberInput className={inputClass} value={form.rate} onChange={(v) => setForm({ ...form, rate: parseFloat(v) || 0 })} />
         </Field>
@@ -340,6 +345,7 @@ const MyParcels: React.FC<{ tabs: React.ReactNode }> = ({ tabs }) => {
   const [editing, setEditing] = useState<AgencyShipment | null>(null);
   const [messaging, setMessaging] = useState<AgencyShipment | null>(null);
   const [deleting, setDeleting] = useState<AgencyShipment | null>(null);
+  const [paying, setPaying] = useState<AgencyShipment | null>(null);
 
   const filtered = useMemo(
     () =>
@@ -352,6 +358,8 @@ const MyParcels: React.FC<{ tabs: React.ReactNode }> = ({ tabs }) => {
   );
 
   const phoneOf = (s: AgencyShipment) => customers.find((c) => c.id === s.customerId)?.phone || '';
+
+  const pager = usePagination(filtered);
 
   return (
     <>
@@ -392,78 +400,100 @@ const MyParcels: React.FC<{ tabs: React.ReactNode }> = ({ tabs }) => {
             text={shipments.length ? undefined : 'Enregistrez vos colis dans « Fret & Logistique » : ils apparaîtront ici.'}
           />
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs text-left">
-              <thead className="bg-slate-50 text-slate-500">
-                <tr>
-                  <th className="p-3 font-semibold">Colis</th>
-                  <th className="p-3 font-semibold hidden md:table-cell">Client</th>
-                  <th className="p-3 font-semibold hidden lg:table-cell">Trajet</th>
-                  <th className="p-3 font-semibold">Statut</th>
-                  <th className="p-3 font-semibold hidden sm:table-cell">Mis à jour</th>
-                  <th className="p-3 font-semibold text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {filtered.map((s) => (
-                  <tr key={s.id} className="hover:bg-slate-50">
-                    <td className="p-3">
-                      <Link to={`/agency/freight/${s.id}`} className="font-mono font-semibold text-[#123B70] hover:underline">
-                        {s.trackingRef}
-                      </Link>
-                      <div className="text-[11px] text-slate-400 truncate max-w-[200px]">{s.description}</div>
-                      <div className="text-[11px] text-slate-500 md:hidden">{s.customerName}</div>
-                    </td>
-                    <td className="p-3 hidden md:table-cell">
-                      <div className="text-slate-800">{s.customerName}</div>
-                      <div className="text-[11px] text-slate-400">{phoneOf(s) || 'Pas de téléphone'}</div>
-                    </td>
-                    <td className="p-3 hidden lg:table-cell text-slate-600">
-                      {s.originCity} → {s.destinationCity}
-                      <div className="text-[11px] text-slate-400">
-                        {SHIPMENT_MODE_LABELS[s.mode]} · {formatNumber(s.weightKg, 1)} kg
-                      </div>
-                      {s.destinationBranchId && (
-                        <div className="text-[11px] text-[#123B70] font-semibold">
-                          {branchName(s.originBranchId) || 'Siège'} → {branchName(s.destinationBranchId)}
-                        </div>
-                      )}
-                    </td>
-                    <td className="p-3">
-                      <Badge className={SHIPMENT_STATUS_STYLES[s.status]}>{SHIPMENT_STATUS_LABELS[s.status]}</Badge>
-                    </td>
-                    <td className="p-3 hidden sm:table-cell text-slate-500">{formatDateTime(s.updatedAt)}</td>
-                    <td className="p-3">
-                      <div className="flex justify-end gap-1 flex-wrap">
-                        {can('freight', 'edit') && (
-                          <button className={btn.secondary} onClick={() => setEditing(s)} title="Modifier le colis">
-                            <Pencil className="w-4 h-4" /> <span className="hidden xl:inline">Modifier</span>
-                          </button>
-                        )}
-                        <button
-                          className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-[#25D366] hover:bg-[#1ebe5b] text-white text-xs font-semibold cursor-pointer"
-                          onClick={() => setMessaging(s)}
-                          title="Envoyer le suivi au client sur WhatsApp"
-                        >
-                          <MessageCircle className="w-4 h-4" /> <span className="hidden xl:inline">Message</span>
-                        </button>
-                        {can('freight', 'delete') && (
-                          <button className={btn.secondary} onClick={() => setDeleting(s)} title="Supprimer le colis">
-                            <Trash2 className="w-4 h-4 text-rose-600" /> <span className="hidden xl:inline">Supprimer</span>
-                          </button>
-                        )}
-                      </div>
-                    </td>
+          <>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs text-left">
+                <thead className="bg-slate-50 text-slate-500">
+                  <tr>
+                    <th className="p-3 font-semibold">Colis</th>
+                    <th className="p-3 font-semibold hidden md:table-cell">Client</th>
+                    <th className="p-3 font-semibold hidden lg:table-cell">Trajet</th>
+                    <th className="p-3 font-semibold">Statut</th>
+                    <th className="p-3 font-semibold hidden md:table-cell">Paiement</th>
+                    <th className="p-3 font-semibold hidden sm:table-cell">Mis à jour</th>
+                    <th className="p-3 font-semibold text-right">Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {pager.items.map((s) => (
+                    <tr key={s.id} className="hover:bg-slate-50">
+                      <td className="p-3">
+                        <Link to={`/agency/freight/${s.id}`} className="font-mono font-semibold text-[#123B70] hover:underline">
+                          {s.trackingRef}
+                        </Link>
+                        <div className="text-[11px] text-slate-400 truncate max-w-[200px]">{s.description}</div>
+                        <div className="text-[11px] text-slate-500 md:hidden">{s.customerName}</div>
+                      </td>
+                      <td className="p-3 hidden md:table-cell">
+                        <div className="text-slate-800">{s.customerName}</div>
+                        <div className="text-[11px] text-slate-400">{phoneOf(s) || 'Pas de téléphone'}</div>
+                      </td>
+                      <td className="p-3 hidden lg:table-cell text-slate-600">
+                        {s.originCity} → {s.destinationCity}
+                        <div className="text-[11px] text-slate-400">
+                          {SHIPMENT_MODE_LABELS[s.mode]} · {formatNumber(s.weightKg, 1)} kg
+                        </div>
+                        {s.destinationBranchId && (
+                          <div className="text-[11px] text-[#123B70] font-semibold">
+                            {branchName(s.originBranchId) || 'Siège'} → {branchName(s.destinationBranchId)}
+                          </div>
+                        )}
+                      </td>
+                      <td className="p-3">
+                        <Badge className={SHIPMENT_STATUS_STYLES[s.status]}>{SHIPMENT_STATUS_LABELS[s.status]}</Badge>
+                      </td>
+                      <td className="p-3 hidden md:table-cell">
+                        {(() => {
+                          const rest = s.estimatedCost - paidOf(s);
+                          const modes = Array.from(new Set(s.payments.map((x) => PAYMENT_METHOD_LABELS[x.method] || x.method)));
+                          return (
+                            <>
+                              <div className={`font-semibold tabular-nums ${rest > 0 ? 'text-amber-700' : 'text-emerald-700'}`}>
+                                {rest > 0 ? `Reste ${formatMoney(rest)}` : 'Soldé'}
+                              </div>
+                              <div className="text-[11px] text-slate-400 truncate max-w-[150px]">{modes.length ? modes.join(', ') : 'Aucun paiement'}</div>
+                            </>
+                          );
+                        })()}
+                      </td>
+                      <td className="p-3 hidden sm:table-cell text-slate-500">{formatDateTime(s.updatedAt)}</td>
+                      <td className="p-3">
+                        <div className="flex justify-end gap-1 flex-wrap">
+                          {can('freight', 'edit') && (
+                            <button className={btn.secondary} onClick={() => setEditing(s)} title="Modifier le colis">
+                              <Pencil className="w-4 h-4" /> <span className="hidden xl:inline">Modifier</span>
+                            </button>
+                          )}
+                          <button className={btn.secondary} onClick={() => setPaying(s)} title="Paiements : encaisser, reçu, mode de paiement">
+                            <Wallet className="w-4 h-4 text-emerald-600" /> <span className="hidden xl:inline">Paiement</span>
+                          </button>
+                          <button
+                            className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-[#25D366] hover:bg-[#1ebe5b] text-white text-xs font-semibold cursor-pointer"
+                            onClick={() => setMessaging(s)}
+                            title="Envoyer le suivi au client sur WhatsApp"
+                          >
+                            <MessageCircle className="w-4 h-4" /> <span className="hidden xl:inline">Message</span>
+                          </button>
+                          {can('freight', 'delete') && (
+                            <button className={btn.secondary} onClick={() => setDeleting(s)} title="Supprimer le colis">
+                              <Trash2 className="w-4 h-4 text-rose-600" /> <span className="hidden xl:inline">Supprimer</span>
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <Pagination pager={pager} />
+          </>
         )}
       </div>
 
       <EditParcel parcel={editing} onClose={() => setEditing(null)} />
       <MessageParcel parcel={messaging} onClose={() => setMessaging(null)} />
+      <ParcelPayments parcel={paying} phone={paying ? phoneOf(paying) : ''} onClose={() => setPaying(null)} />
       <ConfirmDialog
         open={!!deleting}
         title="Supprimer le colis"

@@ -1,9 +1,9 @@
 import React, { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Download, Mail, MapPin, Pencil, Phone, Plus, Search, Trash2, Users } from 'lucide-react';
+import { ArrowLeft, Download, Mail, MapPin, MessageCircle, Pencil, Phone, Plus, Search, Trash2, Users } from 'lucide-react';
 import { useWorkspace } from '../AgencyWorkspaceContext';
 import { AgencyCustomer, CustomerStatus } from '../types';
-import { Badge, btn, Card, ConfirmDialog, EmptyState, Field, inputClass, Modal, PageHeader } from '../ui';
+import { Badge, btn, Card, ConfirmDialog, EmptyState, Field, inputClass, Modal, PageHeader, Pagination, usePagination } from '../ui';
 import {
   CUSTOMER_STATUS_LABELS,
   CUSTOMER_STATUS_STYLES,
@@ -13,7 +13,23 @@ import {
   formatMoney,
   SHIPMENT_STATUS_LABELS,
   SHIPMENT_STATUS_STYLES,
+  whatsappUrl,
 } from '../utils';
+
+/** Bouton WhatsApp vers un client (message de salutation au nom de l'agence) */
+const WhatsAppButton: React.FC<{ phone: string; name: string; agencyName: string; label?: boolean }> = ({ phone, name, agencyName, label }) =>
+  phone ? (
+    <a
+      href={whatsappUrl(phone, `Bonjour ${name}, c’est ${agencyName}. `)}
+      target="_blank"
+      rel="noopener noreferrer"
+      className={`inline-flex items-center justify-center gap-1.5 rounded-lg bg-[#25D366] hover:bg-[#1ebe5b] text-white font-semibold text-xs ${label ? 'px-4 py-2' : 'p-1.5'}`}
+      title={`Écrire à ${name} sur WhatsApp`}
+    >
+      <MessageCircle className="w-4 h-4" />
+      {label && 'WhatsApp'}
+    </a>
+  ) : null;
 import { ORDER_STATUS_LABELS } from './OrdersPage';
 import { BranchSelect } from './BranchSelect';
 
@@ -44,7 +60,9 @@ const CustomerForm: React.FC<{
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (await saveCustomer(form)) onClose();
+    // Tout est facultatif : sans nom, on reprend le téléphone, l'entreprise ou l'email
+    const name = (form.name || '').trim() || (form.phone || '').trim() || (form.company || '').trim() || (form.email || '').trim() || 'Client sans nom';
+    if (await saveCustomer({ ...form, name })) onClose();
   };
 
   return (
@@ -65,8 +83,8 @@ const CustomerForm: React.FC<{
       }
     >
       <form id="customer-form" onSubmit={submit} className="grid sm:grid-cols-2 gap-4">
-        <Field label="Nom du contact" required>
-          <input className={inputClass} value={form.name || ''} onChange={set('name')} required />
+        <Field label="Nom du contact">
+          <input className={inputClass} value={form.name || ''} onChange={set('name')} placeholder="Facultatif" />
         </Field>
         <Field label="Entreprise">
           <input className={inputClass} value={form.company || ''} onChange={set('company')} />
@@ -107,7 +125,7 @@ const CustomerForm: React.FC<{
 };
 
 const CustomerDetail: React.FC<{ customer: AgencyCustomer }> = ({ customer }) => {
-  const { orders, shipments, can, deleteCustomer } = useWorkspace();
+  const { orders, shipments, can, deleteCustomer, activeAgency } = useWorkspace();
   const navigate = useNavigate();
   const [editOpen, setEditOpen] = useState(false);
   const [confirm, setConfirm] = useState(false);
@@ -125,6 +143,7 @@ const CustomerDetail: React.FC<{ customer: AgencyCustomer }> = ({ customer }) =>
         subtitle={customer.company}
         actions={
           <>
+            <WhatsAppButton phone={customer.phone} name={customer.name} agencyName={activeAgency?.name || ''} label />
             {can('customers', 'edit') && (
               <button className={btn.secondary} onClick={() => setEditOpen(true)}>
                 <Pencil className="w-4 h-4" /> Modifier
@@ -226,11 +245,13 @@ const CustomerDetail: React.FC<{ customer: AgencyCustomer }> = ({ customer }) =>
 
 export const CustomersPage: React.FC = () => {
   const { customerId } = useParams();
-  const { customers, shipments, can, logActivity } = useWorkspace();
+  const { customers, shipments, can, logActivity, activeAgency, deleteCustomer } = useWorkspace();
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState<'all' | CustomerStatus>('all');
   const [city, setCity] = useState('all');
   const [formOpen, setFormOpen] = useState(false);
+  const [editing, setEditing] = useState<AgencyCustomer | null>(null);
+  const [removing, setRemoving] = useState<AgencyCustomer | null>(null);
 
   const cities = useMemo(() => Array.from(new Set(customers.map((c) => c.city).filter(Boolean))).sort(), [customers]);
   const filtered = customers.filter(
@@ -239,6 +260,9 @@ export const CustomersPage: React.FC = () => {
       (city === 'all' || c.city === city) &&
       [c.name, c.company, c.phone, c.email].join(' ').toLowerCase().includes(query.toLowerCase())
   );
+
+  // Avant tout retour anticipé (règle des hooks React)
+  const pager = usePagination(filtered);
 
   if (customerId) {
     const customer = customers.find((c) => c.id === customerId);
@@ -257,6 +281,7 @@ export const CustomersPage: React.FC = () => {
     );
     logActivity('customers', 'a exporté la liste des clients');
   };
+
 
   return (
     <>
@@ -304,44 +329,71 @@ export const CustomersPage: React.FC = () => {
         {filtered.length === 0 ? (
           <EmptyState icon={Users} title={customers.length ? 'Aucun client ne correspond' : 'Aucun client'} text={customers.length ? undefined : 'Ajoutez vos clients pour suivre leurs commandes et expéditions.'} />
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs text-left">
-              <thead className="bg-slate-50 text-slate-500">
-                <tr>
-                  <th className="p-3 font-semibold">Client</th>
-                  <th className="p-3 font-semibold hidden md:table-cell">Contact</th>
-                  <th className="p-3 font-semibold hidden sm:table-cell">Ville</th>
-                  <th className="p-3 font-semibold hidden sm:table-cell text-right">Colis</th>
-                  <th className="p-3 font-semibold">Statut</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {filtered.map((c) => (
-                  <tr key={c.id} className="hover:bg-slate-50">
-                    <td className="p-3">
-                      <Link to={`/agency/customers/${c.id}`} className="font-semibold text-[#123B70] hover:underline">
-                        {c.name}
-                      </Link>
-                      <div className="text-[11px] text-slate-400">{c.company}</div>
-                    </td>
-                    <td className="p-3 hidden md:table-cell text-slate-600">
-                      <div>{c.phone}</div>
-                      <div className="text-[11px] text-slate-400">{c.email}</div>
-                    </td>
-                    <td className="p-3 hidden sm:table-cell text-slate-600">{c.city}</td>
-                    <td className="p-3 hidden sm:table-cell text-right tabular-nums">{shipments.filter((s) => s.customerId === c.id).length}</td>
-                    <td className="p-3">
-                      <Badge className={CUSTOMER_STATUS_STYLES[c.status]}>{CUSTOMER_STATUS_LABELS[c.status]}</Badge>
-                    </td>
+          <>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs text-left">
+                <thead className="bg-slate-50 text-slate-500">
+                  <tr>
+                    <th className="p-3 font-semibold">Client</th>
+                    <th className="p-3 font-semibold hidden md:table-cell">Contact</th>
+                    <th className="p-3 font-semibold hidden sm:table-cell">Ville</th>
+                    <th className="p-3 font-semibold hidden sm:table-cell text-right">Colis</th>
+                    <th className="p-3 font-semibold">Statut</th>
+                    <th className="p-3 font-semibold text-right">Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {pager.items.map((c) => (
+                    <tr key={c.id} className="hover:bg-slate-50">
+                      <td className="p-3">
+                        <Link to={`/agency/customers/${c.id}`} className="font-semibold text-[#123B70] hover:underline">
+                          {c.name}
+                        </Link>
+                        <div className="text-[11px] text-slate-400">{c.company}</div>
+                      </td>
+                      <td className="p-3 hidden md:table-cell text-slate-600">
+                        <div>{c.phone}</div>
+                        <div className="text-[11px] text-slate-400">{c.email}</div>
+                      </td>
+                      <td className="p-3 hidden sm:table-cell text-slate-600">{c.city}</td>
+                      <td className="p-3 hidden sm:table-cell text-right tabular-nums">{shipments.filter((s) => s.customerId === c.id).length}</td>
+                      <td className="p-3">
+                        <Badge className={CUSTOMER_STATUS_STYLES[c.status]}>{CUSTOMER_STATUS_LABELS[c.status]}</Badge>
+                      </td>
+                      <td className="p-3 text-right">
+                        <div className="flex justify-end items-center gap-1">
+                          <WhatsAppButton phone={c.phone} name={c.name} agencyName={activeAgency?.name || ''} />
+                          {can('customers', 'edit') && (
+                            <button className={btn.secondary} onClick={() => setEditing(c)} title={`Modifier ${c.name}`}>
+                              <Pencil className="w-4 h-4" /> <span className="hidden xl:inline">Modifier</span>
+                            </button>
+                          )}
+                          {can('customers', 'delete') && (
+                            <button className={btn.secondary} onClick={() => setRemoving(c)} title={`Supprimer ${c.name}`}>
+                              <Trash2 className="w-4 h-4 text-rose-600" /> <span className="hidden xl:inline">Supprimer</span>
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <Pagination pager={pager} />
+          </>
         )}
       </div>
 
       <CustomerForm open={formOpen} initial={emptyCustomer} onClose={() => setFormOpen(false)} />
+      <CustomerForm open={!!editing} initial={editing || emptyCustomer} onClose={() => setEditing(null)} />
+      <ConfirmDialog
+        open={!!removing}
+        title="Supprimer le client"
+        text={`La fiche de ${removing?.name} et ses notes internes seront supprimées. Les colis existants restent enregistrés.`}
+        onClose={() => setRemoving(null)}
+        onConfirm={() => removing && deleteCustomer(removing.id)}
+      />
     </>
   );
 };

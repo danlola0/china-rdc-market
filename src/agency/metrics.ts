@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { useWorkspace } from './AgencyWorkspaceContext';
 import { ExpenseCategory } from './types';
-import { EXPENSE_CATEGORY_LABELS, formatMoney, fromUSD, lastMonths, monthKey, toUSD, todayISO } from './utils';
+import { EXPENSE_CATEGORY_LABELS, formatMoney, fromUSD, lastMonths, monthKey, paymentUSD, toUSD, todayISO } from './utils';
 
 /**
  * Indicateurs calculés sur les données de l'agence active.
@@ -18,7 +18,7 @@ export const useAgencyMetrics = (months = 6) => {
 
     // Revenus : paiements déclarés sur les colis + commandes marketplace
     const revenueEntries = [
-      ...shipments.flatMap((s) => s.payments.map((p) => ({ date: p.date, usd: p.amount }))),
+      ...shipments.flatMap((s) => s.payments.map((p) => ({ date: p.date, usd: paymentUSD(p) }))),
       ...orders.map((o) => ({ date: o.date, usd: o.totalUSD })),
     ];
     const expenseEntries = expenses.map((e) => ({ date: e.date, usd: toUSD(e.amount, e.currency), category: e.category }));
@@ -43,7 +43,7 @@ export const useAgencyMetrics = (months = 6) => {
       .sort((a, b) => b.usd - a.usd);
 
     const freightBilled = shipments.reduce((s, sh) => s + sh.estimatedCost, 0);
-    const freightPaid = shipments.reduce((s, sh) => s + sh.payments.reduce((x, p) => x + p.amount, 0), 0);
+    const freightPaid = shipments.reduce((s, sh) => s + sh.payments.reduce((x, p) => x + paymentUSD(p), 0), 0);
 
     return {
       currency,

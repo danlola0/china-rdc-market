@@ -14,19 +14,29 @@ import {
   RotateCcw,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { ClearConversationButton, isClearedFor, MessageDeleteMenu } from '../../components/common/MessageDeleteMenu';
+import { useBuyerPhones, WhatsAppChatButton } from '../../components/common/WhatsAppChatButton';
+import { AgencyLogo } from '../../components/common/AgencyImages';
 
 // Traductions manuelles des messages (indexées par id de message)
 const MESSAGE_TRANSLATIONS: Record<string, { zh: string; en: string; fr: string }> = {};
 
+/** Membre d'agence dans Messages : WhatsApp vers le client */
+const AgencySideWhatsApp: React.FC<{ agencyId: string; buyerId: string; buyerName: string; agencyName: string }> = ({ agencyId, buyerId, buyerName, agencyName }) => {
+  const phones = useBuyerPhones(agencyId);
+  return <WhatsAppChatButton phone={phones[buyerId]} title={`Écrire à ${buyerName} sur WhatsApp`} message={`Bonjour ${buyerName}, c’est ${agencyName}. `} />;
+};
+
 export const MessagingPage: React.FC = () => {
   const {
-    conversations,
+    conversations: allConversations,
     activeConversationId,
     setActiveConversationId,
     sendMessage,
     currentUser,
     language,
     t,
+    agencies,
   } = useApp();
 
   const [inputText, setInputText] = useState('');
@@ -34,6 +44,9 @@ export const MessagingPage: React.FC = () => {
   const [autoTranslate, setAutoTranslate] = useState(true);
   const [manuallyTranslatedMsgIds, setManuallyTranslatedMsgIds] = useState<Record<string, boolean>>({});
 
+  // Mon côté de chaque conversation ; les discussions effacées (sans nouveau message) ne sont plus listées
+  const sideOf = (c: { buyerId: string }) => (c.buyerId === currentUser.id ? 'buyer' : 'agency') as 'buyer' | 'agency';
+  const conversations = allConversations.filter((c) => !isClearedFor(c, sideOf(c)));
   const activeConv = conversations.find((c) => c.id === activeConversationId) || conversations[0];
 
   const handleSelectConv = (id: string) => {
@@ -161,9 +174,9 @@ export const MessagingPage: React.FC = () => {
                     isActive ? 'bg-white border-l-4 border-[#123B70] shadow-xs' : ''
                   }`}
                 >
-                  <img
-                    src={conv.agencyAvatar}
-                    alt={conv.agencyName}
+                  <AgencyLogo
+                    src={agencies.find((a) => a.id === conv.agencyId)?.logo || conv.agencyAvatar}
+                    name={conv.agencyName}
                     className="w-11 h-11 rounded-lg object-cover border border-slate-200 shrink-0 mt-0.5"
                   />
                   <div className="flex-1 min-w-0 text-xs">
@@ -221,9 +234,9 @@ export const MessagingPage: React.FC = () => {
                     <ArrowLeft className="w-5 h-5" />
                   </button>
 
-                  <img
-                    src={activeConv.agencyAvatar}
-                    alt={activeConv.agencyName}
+                  <AgencyLogo
+                    src={agencies.find((a) => a.id === activeConv.agencyId)?.logo || activeConv.agencyAvatar}
+                    name={activeConv.agencyName}
                     className="w-10 h-10 rounded-lg object-cover border border-slate-200 shrink-0"
                   />
                   <div className="min-w-0">
@@ -244,12 +257,24 @@ export const MessagingPage: React.FC = () => {
                   </div>
                 </div>
 
-                <Link
-                  to={`/catalog?agency=${activeConv.agencyId}`}
-                  className="hidden sm:inline-flex px-3 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
-                >
-                  {t.viewStore}
-                </Link>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {sideOf(activeConv) === 'buyer' ? (
+                    <WhatsAppChatButton
+                      phone={agencies.find((a) => a.id === activeConv.agencyId)?.phoneWeChat}
+                      title={`Écrire à ${activeConv.agencyName} sur WhatsApp`}
+                      message={`Bonjour ${activeConv.agencyName}, je vous contacte depuis ASEP MARKET${activeConv.productName ? ` au sujet de « ${activeConv.productName} »` : ''}. `}
+                    />
+                  ) : (
+                    <AgencySideWhatsApp agencyId={activeConv.agencyId} buyerId={activeConv.buyerId} buyerName={activeConv.buyerName} agencyName={activeConv.agencyName} />
+                  )}
+                  <ClearConversationButton conversation={activeConv} side={sideOf(activeConv)} onCleared={() => setMobileView('list')} />
+                  <Link
+                    to={`/catalog?agency=${activeConv.agencyId}`}
+                    className="hidden sm:inline-flex px-3 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+                  >
+                    {t.viewStore}
+                  </Link>
+                </div>
               </div>
 
               {/* Product Reference Bar */}
@@ -289,7 +314,9 @@ export const MessagingPage: React.FC = () => {
                   // L'acheteur de la conversation voit ses messages à droite ; les membres de l'agence, ceux de l'agence
                   const isMe = activeConv.buyerId === currentUser.id ? msg.sender === 'buyer' : msg.sender === 'agency';
 
-                  const { text: displayText, isTranslated } = getRenderedMessageText(msg);
+                  const rendered = getRenderedMessageText(msg);
+                  const displayText = msg.deleted ? 'Ce message a été supprimé' : rendered.text;
+                  const isTranslated = !msg.deleted && rendered.isTranslated;
 
                   return (
                     <div
@@ -304,7 +331,7 @@ export const MessagingPage: React.FC = () => {
                         }`}
                       >
                         {/* If message has an attachment */}
-                        {msg.attachment && (
+                        {msg.attachment && !msg.deleted && (
                           <div
                             className={`mb-2 p-2.5 rounded-lg border text-[11px] ${
                               isMe
@@ -346,7 +373,7 @@ export const MessagingPage: React.FC = () => {
                           </div>
                         )}
 
-                        <div className="whitespace-pre-wrap">{displayText}</div>
+                        <div className={`whitespace-pre-wrap ${msg.deleted ? 'italic opacity-70' : ''}`}>{displayText}</div>
                       </div>
 
                       {/* Footer under bubble: Timestamp, checkmark, and TRANSLATION BUTTON */}
@@ -354,16 +381,25 @@ export const MessagingPage: React.FC = () => {
                         <span>{msg.timestamp}</span>
                         {isMe && <CheckCheck className="w-3 h-3 text-blue-600" />}
 
+                        <MessageDeleteMenu
+                          message={msg}
+                          side={sideOf(activeConv)}
+                          align={isMe ? 'right' : 'left'}
+                          canDeleteForEveryone={isMe && msg.senderId === currentUser.id}
+                        />
+
                         {/* Direct Translation Toggle Button on each message */}
-                        <button
-                          type="button"
-                          onClick={() => toggleTranslateMessage(msg.id)}
-                          className="text-[#123B70] hover:text-[#FF8A00] font-semibold flex items-center gap-1 transition-colors cursor-pointer bg-slate-100 hover:bg-slate-200 px-1.5 py-0.5 rounded"
-                          title="Traduire / Afficher l'original"
-                        >
-                          <Languages className="w-3 h-3" />
-                          <span>{isTranslated ? t.seeOriginal : t.translateAction}</span>
-                        </button>
+                        {!msg.deleted && (
+                          <button
+                            type="button"
+                            onClick={() => toggleTranslateMessage(msg.id)}
+                            className="text-[#123B70] hover:text-[#FF8A00] font-semibold flex items-center gap-1 transition-colors cursor-pointer bg-slate-100 hover:bg-slate-200 px-1.5 py-0.5 rounded"
+                            title="Traduire / Afficher l'original"
+                          >
+                            <Languages className="w-3 h-3" />
+                            <span>{isTranslated ? t.seeOriginal : t.translateAction}</span>
+                          </button>
+                        )}
                       </div>
                     </div>
                   );

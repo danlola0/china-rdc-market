@@ -1,13 +1,20 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { ArrowLeft, MessageSquare, Send } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { useWorkspace } from '../AgencyWorkspaceContext';
 import { btn, EmptyState, inputClass, PageHeader } from '../ui';
+import { ClearConversationButton, isClearedFor, MessageDeleteMenu } from '../../components/common/MessageDeleteMenu';
+import { useBuyerPhones, WhatsAppChatButton } from '../../components/common/WhatsAppChatButton';
 
 export const ConversationsPage: React.FC = () => {
-  const { sendMessage } = useApp();
-  const { conversations, can, logActivity } = useWorkspace();
-  const [activeId, setActiveId] = useState<string | null>(null);
+  const { sendMessage, currentUser } = useApp();
+  const { conversations: allConversations, can, logActivity, activeAgencyId, activeAgency } = useWorkspace();
+  const buyerPhones = useBuyerPhones(activeAgencyId);
+  // Les discussions effacées de notre côté (sans nouveau message) ne sont plus listées
+  const conversations = allConversations.filter((c) => !isClearedFor(c, 'agency'));
+  const [params] = useSearchParams();
+  const [activeId, setActiveId] = useState<string | null>(params.get('c'));
   const [text, setText] = useState('');
   const endRef = useRef<HTMLDivElement>(null);
 
@@ -62,20 +69,38 @@ export const ConversationsPage: React.FC = () => {
                   <button className={`${btn.icon} md:hidden`} onClick={() => setActiveId(null)} aria-label="Retour">
                     <ArrowLeft className="w-4 h-4" />
                   </button>
-                  <div>
+                  <div className="flex-1 min-w-0">
                     <div className="text-sm font-semibold text-slate-900">{active.buyerName}</div>
                     <div className="text-[11px] text-slate-400">{active.productName || active.buyerCity}</div>
                   </div>
+                  <WhatsAppChatButton
+                    phone={buyerPhones[active.buyerId]}
+                    title={`Écrire à ${active.buyerName} sur WhatsApp`}
+                    message={`Bonjour ${active.buyerName}, c’est ${activeAgency?.name || 'votre fournisseur'}${active.productName ? ` au sujet de « ${active.productName} »` : ''}. `}
+                  />
+                  <ClearConversationButton conversation={active} side="agency" onCleared={() => setActiveId(null)} />
                 </div>
                 <div className="flex-1 overflow-y-auto p-4 space-y-2 bg-slate-50 max-h-[420px]">
                   {active.messages.map((m) => (
-                    <div key={m.id} className={`flex ${m.sender === 'agency' ? 'justify-end' : 'justify-start'}`}>
+                    <div key={m.id} className={`group flex items-end gap-1 ${m.sender === 'agency' ? 'justify-end' : 'justify-start'}`}>
+                      <div className={m.sender === 'agency' ? 'order-first' : 'order-last'}>
+                        <MessageDeleteMenu
+                          message={m}
+                          side="agency"
+                          align={m.sender === 'agency' ? 'right' : 'left'}
+                          canDeleteForEveryone={m.sender === 'agency' && (m.senderId === currentUser.id || can('conversations', 'delete'))}
+                        />
+                      </div>
                       <div
                         className={`max-w-[80%] rounded-2xl px-3 py-2 text-xs ${
                           m.sender === 'agency' ? 'bg-[#123B70] text-white rounded-br-sm' : 'bg-white border border-slate-200 text-slate-800 rounded-bl-sm'
                         }`}
                       >
-                        <p className="whitespace-pre-line">{m.text}</p>
+                        {m.deleted ? (
+                          <p className="italic opacity-70">Ce message a été supprimé</p>
+                        ) : (
+                          <p className="whitespace-pre-line">{m.text}</p>
+                        )}
                         <p className={`mt-1 text-[10px] ${m.sender === 'agency' ? 'text-blue-200' : 'text-slate-400'}`}>{m.timestamp}</p>
                       </div>
                     </div>

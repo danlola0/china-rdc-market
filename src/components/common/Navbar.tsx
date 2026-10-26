@@ -19,6 +19,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { CATEGORIES } from '../../data/referenceData';
+import { NotificationBell } from './NotificationBell';
 
 export const Navbar: React.FC = () => {
   const navigate = useNavigate();
@@ -56,7 +57,7 @@ export const Navbar: React.FC = () => {
   };
 
   return (
-    <header className="sticky top-0 z-40 bg-white border-b border-slate-200">
+    <header className="relative z-40 bg-white border-b border-slate-200">
       {/* 1. Top Bar / Announcement & Demo Selector */}
       <div className="bg-[#0c274c] text-slate-300 text-xs py-1.5 px-4 sm:px-6">
         <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2">
@@ -210,6 +211,9 @@ export const Navbar: React.FC = () => {
 
           {/* Right Action Icons & User menu */}
           <div className="flex items-center gap-1 sm:gap-2.5 shrink-0">
+            {/* Notifications */}
+            {isAuthenticated && <NotificationBell />}
+
             {/* Messages */}
             <Link
               to="/messages"
@@ -296,7 +300,7 @@ export const Navbar: React.FC = () => {
             </div>
 
             {/* Prominent Header 1-Click Language Switcher (Visible on both desktop & mobile) */}
-            <div className="flex items-center bg-slate-100 p-0.5 sm:p-1 rounded-xl border border-slate-200 shadow-2xs">
+            <div className="hidden sm:flex items-center bg-slate-100 p-0.5 sm:p-1 rounded-xl border border-slate-200 shadow-2xs">
               <span className="hidden xl:flex items-center gap-1 text-[11px] font-bold text-slate-500 pl-1.5 pr-1">
                 <Globe className="w-3.5 h-3.5 text-[#123B70]" />
               </span>

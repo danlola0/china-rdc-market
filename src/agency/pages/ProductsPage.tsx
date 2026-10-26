@@ -1,15 +1,16 @@
 import React, { useMemo, useState } from 'react';
 import { NumberInput } from '../../components/common/NumberInput';
 import { Link } from 'react-router-dom';
-import { Eye, Package, Pencil, Plus, Search, Trash2, Upload } from 'lucide-react';
+import { Eye, Layers, Package, Pencil, Plus, Search, Trash2, Upload } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { CATEGORIES } from '../../data/referenceData';
 import { Product } from '../../types';
 import { useWorkspace } from '../AgencyWorkspaceContext';
-import { Badge, btn, ConfirmDialog, EmptyState, Field, inputClass, Modal, PageHeader } from '../ui';
+import { Badge, btn, ConfirmDialog, EmptyState, Field, inputClass, Modal, PageHeader, Pagination, usePagination } from '../ui';
 import { compressImage, formatMoney } from '../utils';
 import { isInlineImage, uploadProductImage } from '../../lib/productImages';
 import { errorMessage } from '../../lib/supabase';
+import { BulkProductsModal } from './BulkProducts';
 
 const PLACEHOLDER_IMAGE = 'https://images.unsplash.com/photo-1581092160607-ee22621dd758?auto=format&fit=crop&w=800&q=80';
 
@@ -36,6 +37,9 @@ export const ProductsPage: React.FC = () => {
   const [form, setForm] = useState(emptyForm);
   const [deleting, setDeleting] = useState<Product | null>(null);
   const [saving, setSaving] = useState('');
+  const [bulkOpen, setBulkOpen] = useState(false);
+  // « Publier et ajouter un autre » : le formulaire reste ouvert pour l'article suivant
+  const [another, setAnother] = useState(false);
 
   const filtered = useMemo(
     () =>
@@ -116,7 +120,9 @@ export const ProductsPage: React.FC = () => {
         const created = await addProduct({ ...data, agencyId: activeAgency.id, agencyName: activeAgency.name, agencyCity: activeAgency.city });
         if (created) {
           logActivity('products', `a publié l’article « ${form.name} »`);
-          setFormOpen(false);
+          // Ajouter un autre : on garde la catégorie, l'unité, les prix et le MOQ ; le reste est vidé
+          if (another) setForm({ ...emptyForm, category: form.category, unit: form.unit, priceMin: form.priceMin, priceMax: form.priceMax, moq: form.moq });
+          else setFormOpen(false);
         }
       }
     } catch (err) {
@@ -131,6 +137,8 @@ export const ProductsPage: React.FC = () => {
     logActivity('products', `a marqué « ${p.name} » ${p.inStock ? 'en rupture' : 'disponible'}`);
   };
 
+  const pager = usePagination(filtered);
+
   return (
     <>
       <PageHeader
@@ -138,10 +146,16 @@ export const ProductsPage: React.FC = () => {
         subtitle={`${products.length} article(s) publiés au catalogue de la marketplace`}
         actions={
           can('products', 'create') && (
-            <button className={btn.primary} onClick={openCreate}>
-              <Plus className="w-4 h-4" />
-              Ajouter un article
-            </button>
+            <>
+              <button className={btn.secondary} onClick={() => setBulkOpen(true)}>
+                <Layers className="w-4 h-4" />
+                Ajouter plusieurs articles
+              </button>
+              <button className={btn.primary} onClick={openCreate}>
+                <Plus className="w-4 h-4" />
+                Ajouter un article
+              </button>
+            </>
           )
         }
       />
@@ -175,72 +189,75 @@ export const ProductsPage: React.FC = () => {
             text={products.length ? 'Modifiez la recherche ou le filtre.' : 'Publiez votre premier article pour qu’il apparaisse dans le catalogue.'}
           />
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs text-left">
-              <thead className="bg-slate-50 text-slate-500">
-                <tr>
-                  <th className="p-3 font-semibold">Article</th>
-                  <th className="p-3 font-semibold hidden md:table-cell">Catégorie</th>
-                  <th className="p-3 font-semibold">Prix FOB</th>
-                  <th className="p-3 font-semibold hidden sm:table-cell">MOQ</th>
-                  <th className="p-3 font-semibold">Disponibilité</th>
-                  <th className="p-3 font-semibold text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {filtered.map((p) => (
-                  <tr key={p.id} className="hover:bg-slate-50">
-                    <td className="p-3">
-                      <div className="flex items-center gap-3">
-                        <img src={p.images[0]} alt="" className="w-10 h-10 rounded-lg object-cover border border-slate-200 shrink-0" />
-                        <div className="min-w-0">
-                          <div className="font-semibold text-slate-900 truncate max-w-[220px]">{p.name}</div>
-                          <div className="text-[11px] text-slate-400">Délai {p.leadTimeDays} j</div>
+          <>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs text-left">
+                <thead className="bg-slate-50 text-slate-500">
+                  <tr>
+                    <th className="p-3 font-semibold">Article</th>
+                    <th className="p-3 font-semibold hidden md:table-cell">Catégorie</th>
+                    <th className="p-3 font-semibold">Prix FOB</th>
+                    <th className="p-3 font-semibold hidden sm:table-cell">MOQ</th>
+                    <th className="p-3 font-semibold">Disponibilité</th>
+                    <th className="p-3 font-semibold text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {pager.items.map((p) => (
+                    <tr key={p.id} className="hover:bg-slate-50">
+                      <td className="p-3">
+                        <div className="flex items-center gap-3">
+                          <img src={p.images[0]} alt="" className="w-10 h-10 rounded-lg object-cover border border-slate-200 shrink-0" />
+                          <div className="min-w-0">
+                            <div className="font-semibold text-slate-900 truncate max-w-[220px]">{p.name}</div>
+                            <div className="text-[11px] text-slate-400">Délai {p.leadTimeDays} j</div>
+                          </div>
                         </div>
-                      </div>
-                    </td>
-                    <td className="p-3 text-slate-600 hidden md:table-cell">{CATEGORIES.find((c) => c.id === p.category)?.name || p.category}</td>
-                    <td className="p-3 tabular-nums font-semibold text-slate-900 whitespace-nowrap">
-                      {formatMoney(p.priceMin)} – {formatMoney(p.priceMax)}
-                    </td>
-                    <td className="p-3 tabular-nums hidden sm:table-cell">
-                      {p.moq} {p.unit}
-                    </td>
-                    <td className="p-3">
-                      {can('products', 'edit') ? (
-                        <button onClick={() => toggleStock(p)} className="cursor-pointer" title="Changer la disponibilité">
+                      </td>
+                      <td className="p-3 text-slate-600 hidden md:table-cell">{CATEGORIES.find((c) => c.id === p.category)?.name || p.category}</td>
+                      <td className="p-3 tabular-nums font-semibold text-slate-900 whitespace-nowrap">
+                        {formatMoney(p.priceMin)} – {formatMoney(p.priceMax)}
+                      </td>
+                      <td className="p-3 tabular-nums hidden sm:table-cell">
+                        {p.moq} {p.unit}
+                      </td>
+                      <td className="p-3">
+                        {can('products', 'edit') ? (
+                          <button onClick={() => toggleStock(p)} className="cursor-pointer" title="Changer la disponibilité">
+                            <Badge className={p.inStock ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-700'}>
+                              {p.inStock ? 'En stock' : 'Rupture'}
+                            </Badge>
+                          </button>
+                        ) : (
                           <Badge className={p.inStock ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-700'}>
                             {p.inStock ? 'En stock' : 'Rupture'}
                           </Badge>
-                        </button>
-                      ) : (
-                        <Badge className={p.inStock ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-700'}>
-                          {p.inStock ? 'En stock' : 'Rupture'}
-                        </Badge>
-                      )}
-                    </td>
-                    <td className="p-3">
-                      <div className="flex justify-end gap-1">
-                        <Link to={`/product/${p.id}`} className={btn.icon} title="Voir dans le catalogue">
-                          <Eye className="w-4 h-4" />
-                        </Link>
-                        {can('products', 'edit') && (
-                          <button className={btn.icon} onClick={() => openEdit(p)} title="Modifier">
-                            <Pencil className="w-4 h-4" />
-                          </button>
                         )}
-                        {can('products', 'delete') && (
-                          <button className={btn.icon} onClick={() => setDeleting(p)} title="Supprimer">
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                      </td>
+                      <td className="p-3">
+                        <div className="flex justify-end gap-1">
+                          <Link to={`/product/${p.id}`} className={btn.icon} title="Voir dans le catalogue">
+                            <Eye className="w-4 h-4" />
+                          </Link>
+                          {can('products', 'edit') && (
+                            <button className={btn.icon} onClick={() => openEdit(p)} title="Modifier">
+                              <Pencil className="w-4 h-4" />
+                            </button>
+                          )}
+                          {can('products', 'delete') && (
+                            <button className={btn.icon} onClick={() => setDeleting(p)} title="Supprimer">
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <Pagination pager={pager} />
+          </>
         )}
       </div>
 
@@ -254,7 +271,12 @@ export const ProductsPage: React.FC = () => {
             <button className={btn.secondary} onClick={() => setFormOpen(false)}>
               Annuler
             </button>
-            <button className={btn.primary} type="submit" form="product-form" disabled={!!saving}>
+            {!editing && (
+              <button className={btn.secondary} type="submit" form="product-form" disabled={!!saving} onClick={() => setAnother(true)}>
+                Publier et ajouter un autre
+              </button>
+            )}
+            <button className={btn.primary} type="submit" form="product-form" disabled={!!saving} onClick={() => setAnother(false)}>
               {saving || (editing ? 'Enregistrer' : 'Publier l’article')}
             </button>
           </>
@@ -282,14 +304,14 @@ export const ProductsPage: React.FC = () => {
           <Field label="Prix maximum (USD)">
             <NumberInput className={inputClass} value={form.priceMax} onChange={(v) => setForm({ ...form, priceMax: v })} />
           </Field>
-          <Field label="Quantité minimum (MOQ)" required>
-            <NumberInput decimals={false} className={inputClass} value={form.moq} onChange={(v) => setForm({ ...form, moq: v })} required />
+          <Field label="Quantité minimum (MOQ)" hint="1 si vide">
+            <NumberInput decimals={false} className={inputClass} value={form.moq} onChange={(v) => setForm({ ...form, moq: v })} />
           </Field>
           <Field label="Délai de production (jours)">
             <NumberInput decimals={false} className={inputClass} value={form.leadTimeDays} onChange={(v) => setForm({ ...form, leadTimeDays: v })} />
           </Field>
-          <Field label="Description" required className="sm:col-span-2">
-            <textarea rows={3} className={inputClass} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} required />
+          <Field label="Description" className="sm:col-span-2">
+            <textarea rows={3} className={inputClass} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Facultatif" />
           </Field>
           <div className="sm:col-span-2 flex items-center gap-4">
             {form.image && <img src={form.image} alt="" className="w-16 h-16 rounded-lg object-cover border border-slate-200" />}
@@ -317,6 +339,7 @@ export const ProductsPage: React.FC = () => {
           logActivity('products', `a supprimé l’article « ${deleting.name} »`);
         }}
       />
+      <BulkProductsModal open={bulkOpen} onClose={() => setBulkOpen(false)} />
     </>
   );
 };

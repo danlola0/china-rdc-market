@@ -124,7 +124,7 @@ export const Footer: React.FC = () => {
           <div>
             {t.footerCopyright}
           </div>
-          <div className="flex items-center gap-4 text-slate-400">
+          <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-slate-400">
             <span>Matadi</span>
             <span>·</span>
             <span>Kinshasa</span>

@@ -14,6 +14,8 @@ export type ModuleKey =
   | 'conversations'
   | 'staff'
   | 'reports'
+  | 'cash'
+  | 'invoices'
   | 'subscription'
   | 'settings';
 
@@ -127,8 +129,80 @@ export interface ShipmentPayment {
   id: string;
   date: string;
   amount: number;
+  /** Devise du paiement (USD si absente, pour les anciens paiements) */
+  currency?: Currency;
   method: PaymentMethod;
   note: string;
+}
+
+export type InvoiceStatus = 'draft' | 'sent' | 'partial' | 'paid' | 'cancelled';
+
+export interface InvoiceItem {
+  description: string;
+  quantity: number;
+  unitPrice: number;
+}
+
+/** agency_invoices — facture personnalisée pour un client */
+export interface AgencyInvoice {
+  id: string;
+  agencyId: string;
+  branchId?: string | null;
+  /** Numéro attribué par la base : FAC-2026-0001 */
+  number: string;
+  customerId?: string | null;
+  customerName: string;
+  customerPhone: string;
+  customerEmail: string;
+  customerAddress: string;
+  shipmentId?: string | null;
+  issueDate: string;
+  dueDate?: string | null;
+  currency: Currency;
+  items: InvoiceItem[];
+  discount: number;
+  taxRate: number;
+  total: number;
+  amountPaid: number;
+  paymentMethod: string;
+  status: InvoiceStatus;
+  notes: string;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Personnalisation des factures d'une agence */
+export interface InvoiceSettings {
+  /** Coordonnées de paiement imprimées sur la facture */
+  paymentInfo?: string;
+  /** Conditions (délai de paiement, pénalités…) */
+  terms?: string;
+  /** Message de pied de page */
+  footer?: string;
+  /** Numéro d'identification (RCCM, NIF…) */
+  legalIds?: string;
+  defaultTaxRate?: number;
+  /** Couleur des factures (sinon couleur de l'agence) */
+  color?: string;
+}
+
+export type IncomeCategory = 'freight' | 'sale' | 'commission' | 'deposit' | 'service' | 'other';
+
+/** agency_incomes — recette saisie à la main dans la Caisse */
+export interface AgencyIncome {
+  id: string;
+  agencyId: string;
+  branchId?: string | null;
+  date: string; // YYYY-MM-DD
+  amount: number;
+  currency: Currency;
+  category: IncomeCategory;
+  description: string;
+  customerName: string;
+  paymentMethod: PaymentMethod;
+  recordedBy: string;
+  createdAt: string;
 }
 
 /** agency_shipments */
@@ -194,10 +268,17 @@ export interface AgencySettings {
   /** Géré uniquement par l'administrateur de la plateforme */
   subscriptionStatus: SubscriptionStatus;
   subscriptionExpiresAt: string | null;
+  /** Fin précise de l'abonnement (instant ; null = sans fin) */
+  subscriptionEndsAt?: string | null;
+  /** Fin de l'essai gratuit de 72 h */
+  trialEndsAt?: string | null;
   subscriptionNote: string;
   /** Formule demandée par l'agence, en attente de l'administrateur */
   requestedPlan: SubscriptionPlan | null;
   requestedAt: string | null;
+  requestedMethod?: string | null;
+  invoiceSettings?: InvoiceSettings;
+  requestedReference?: string;
 }
 
 export type SubscriptionStatus = 'trial' | 'active' | 'expired' | 'suspended';

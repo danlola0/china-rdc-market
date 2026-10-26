@@ -12,6 +12,7 @@ import { ToastContainer } from './components/common/ToastContainer';
 import { FloatingTranslateWidget } from './components/common/FloatingTranslateWidget';
 import { MobileBottomNav } from './components/common/MobileBottomNav';
 import { SplashScreen } from './components/common/SplashScreen';
+import { UpdateBanner } from './components/common/UpdateBanner';
 import { HomePage } from './pages/public/HomePage';
 import { CatalogPage } from './pages/public/CatalogPage';
 import { ProductDetailPage } from './pages/public/ProductDetailPage';
@@ -108,6 +109,7 @@ export default function App() {
 
           <Footer />
           <ToastContainer />
+          <UpdateBanner />
           <SplashScreen />
           <FloatingTranslateWidget />
           <MobileBottomNav />
